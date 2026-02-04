@@ -1,0 +1,26 @@
+{
+  "home_offers": {
+    "weekly": {
+      "active": true,
+      "priority": 10,
+      "titles": {
+        "ar": "عروض تيكي: خصومات أسبوعية",
+        "fr": "Offres Tikki: promos hebdo",
+        "en": "Tikki deals: weekly promos"
+      },
+      "updatedAtMs": 1700000000000,
+      "route": "/discounts"
+    },
+    "update": {
+      "active": true,
+      "priority": 5,
+      "titles": {
+        "ar": "تحديث جديد قريباً",
+        "fr": "Mise à jour bientôt",
+        "en": "New update coming"
+      },
+      "updatedAtMs": 1700000000001,
+      "route": "/discounts"
+    }
+  }
+}

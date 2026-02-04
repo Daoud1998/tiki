@@ -1,0 +1,55 @@
+{
+  "promo_plans": {
+    "boost": {
+      "tier": "boost",
+      "rank": 1,
+      "active": true,
+      "titles": {
+        "ar": "تعزيز",
+        "fr": "Boost",
+        "en": "Boost"
+      },
+      "durations": [
+        {"days": 1, "priceMru": 50},
+        {"days": 3, "priceMru": 120},
+        {"days": 7, "priceMru": 150},
+        {"days": 15, "priceMru": 280},
+        {"days": 30, "priceMru": 500}
+      ]
+    },
+    "featured": {
+      "tier": "featured",
+      "rank": 2,
+      "active": true,
+      "titles": {
+        "ar": "مميز",
+        "fr": "En vedette",
+        "en": "Featured"
+      },
+      "durations": [
+        {"days": 1, "priceMru": 80},
+        {"days": 3, "priceMru": 180},
+        {"days": 7, "priceMru": 250},
+        {"days": 15, "priceMru": 450},
+        {"days": 30, "priceMru": 800}
+      ]
+    },
+    "top": {
+      "tier": "top",
+      "rank": 3,
+      "active": true,
+      "titles": {
+        "ar": "الأعلى",
+        "fr": "Top",
+        "en": "Top"
+      },
+      "durations": [
+        {"days": 1, "priceMru": 120},
+        {"days": 3, "priceMru": 250},
+        {"days": 7, "priceMru": 400},
+        {"days": 15, "priceMru": 650},
+        {"days": 30, "priceMru": 1000}
+      ]
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "36657885045",
+    "project_id": "tiki-a9d30",
+    "storage_bucket": "tiki-a9d30.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:36657885045:android:332b9d26f8b1ca53dbed3c",
+        "android_client_info": {
+          "package_name": "app.tiki.mr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbAWm9s5DyGEv6LgTM6tUQsJB5Jf_ut5U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

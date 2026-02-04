@@ -1,0 +1,58 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "promo_plans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "active", "order": "ASCENDING"},
+        {"fieldPath": "rank", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "publishedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "categoryId", "order": "ASCENDING"},
+        {"fieldPath": "publishedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "wilayaId", "order": "ASCENDING"},
+        {"fieldPath": "publishedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "searchTokens", "arrayConfig": "CONTAINS"},
+        {"fieldPath": "publishedAt", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "categoryId", "order": "ASCENDING"},
+        {"fieldPath": "searchTokens", "arrayConfig": "CONTAINS"},
+        {"fieldPath": "publishedAt", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

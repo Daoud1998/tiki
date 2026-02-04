@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner() {
+      return signedIn()
+        && resource.data.sellerId == request.auth.uid;
+    }
+
+    function mapOrEmpty(v) {
+      return v is map ? v : {};
+    }
+
+    // Users (profile)
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Admin allowlist collection
+    match /admins/{uid} {
+      // القراءة للأدمن فقط
+      allow read: if isAdmin();
+
+      // الكتابة من التطبيق ممنوعة (أنت تضيف الأدمن من الـ Console)
+      allow write: if false;
+    }
+
+    // Products
+    match /products/{productId} {
+      allow read: if true;
+
+      // إنشاء إعلان: لازم sellerId = UID
+      allow create: if signedIn()
+        && request.resource.data.sellerId == request.auth.uid;
+
+      // تعديل:
+      // - الأدمن يقدر يعدّل كل شيء
+      // - المالك يقدر يعدّل، لكن لا يقدر يلمس حقول VIP الحساسة داخل attrs
+      allow update: if isAdmin() || (isOwner() && canOwnerUpdateVipSafely());
+
+      allow delete: if isAdmin() || isOwner();
+
+      function canOwnerUpdateVipSafely() {
+        let oldA = mapOrEmpty(resource.data.attrs);
+        let newA = mapOrEmpty(request.resource.data.attrs);
+
+        // امنع البائع من تغيير حقول الموافقة/التفعيل الفعلية
+        return (newA.vipRank == oldA.vipRank)
+          && (newA.vipUntilMs == oldA.vipUntilMs)
+          && (newA.vipApprovedAt == oldA.vipApprovedAt)
+          && (newA.vipApprovedBy == oldA.vipApprovedBy)
+          && (newA.vipStatus == oldA.vipStatus);
+      }
+    }
+
+    // Promo ads shown in Home ticker and Ads screen.
+    // Collection: promo_ads
+    match /promo_ads/{adId} {
+      // Public reads (Home ticker) + users browsing ads.
+      allow read: if true;
+
+      // Create: must be signed in and ownerUserId must be the current user.
+      allow create: if signedIn()
+        && request.resource.data.ownerUserId == request.auth.uid;
+
+      // Update/Delete:
+      // - Admin can do everything.
+      // - Owner can update/delete their own ad.
+      // NOTE: If you want to prevent owners from self-approving VIP,
+      // add field-level restrictions here (promoStatus/isVip/promoApprAtMs...).
+      allow update: if isAdmin() || (signedIn() && resource.data.ownerUserId == request.auth.uid);
+      allow delete: if isAdmin() || (signedIn() && resource.data.ownerUserId == request.auth.uid);
+    }
+
+    // Home offers / announcements shown in the Home split banner.
+    // Collection: home_offers
+    match /home_offers/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}

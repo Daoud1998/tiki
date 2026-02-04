@@ -1,0 +1,94 @@
+name: tiki
+description: "TIKI marketplace (mock UI + structure)"
+publish_to: "none"
+
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  pdf: ^3.10.8
+  printing: ^5.12.0
+  flutter:
+    sdk: flutter
+
+  firebase_messaging: ^16.0.0
+
+  # Localization + formatting
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+
+  # Routing + state
+  go_router: ^17.0.1
+  flutter_riverpod: ^3.0.0
+
+  # Local storage (guest prefs)
+  shared_preferences: ^2.3.2
+
+  # Local SQL cache (fast search)
+  sqflite: ^2.3.3
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  # Share + external actions
+  share_plus: ^12.0.1
+  url_launcher: ^6.3.0
+
+  # Images
+  cached_network_image: ^3.4.1
+  image_picker: ^1.2.1
+
+  # SVG (lightweight illustrations)
+  flutter_svg: ^2.0.10
+  firebase_auth: ^6.1.4
+  cloud_firestore: ^6.1.2
+  firebase_storage: ^13.0.0
+  firebase_core: ^4.4.0
+  cloud_functions: ^6.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/banners/ar/banner_1.png
+    - assets/images/banners/ar/banner_2.png
+    - assets/images/banners/ar/banner_3.png
+    - assets/images/banners/fr/banner_1.png
+    - assets/images/banners/fr/banner_2.png
+    - assets/images/banners/fr/banner_3.png
+    - assets/images/banners/en/banner_1.png
+    - assets/images/banners/en/banner_2.png
+    - assets/images/banners/en/banner_3.png
+
+    # Publish wizard hints (SVG)
+    - assets/illustrations/publish/checklist.svg
+    - assets/illustrations/publish/contact.svg
+    - assets/illustrations/publish/location.svg
+    - assets/illustrations/publish/photo.svg
+    - assets/illustrations/publish/price.svg
+
+  # Fonts (optional now). If you don't add font files, remove this section.
+  # To use it properly:
+  # 1) Create assets/fonts/
+  # 2) Add the font files:
+  #    - NotoSans-Regular.ttf
+  #    - NotoSans-Bold.ttf
+  #    - NotoSansArabic-Regular.ttf
+  #    - NotoSansArabic-Bold.ttf
+  # 3) Keep this section as-is.
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+    - family: NotoSansArabic
+      fonts:
+        - asset: assets/fonts/NotoSansArabic-Regular.ttf
+        - asset: assets/fonts/NotoSansArabic-Bold.ttf
+          weight: 700

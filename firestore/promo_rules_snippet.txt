@@ -1,0 +1,37 @@
+// Add these blocks inside your firestore.rules (same helper functions signedIn/isAdmin/isOwner).
+
+// Promo tiers (Boost/Featured/Top)
+match /promo_plans/{tierId} {
+  allow read: if true;
+  allow create, update, delete: if isAdmin();
+}
+
+// Unique views marker (optional but recommended)
+match /unique_product_views/{docId} {
+  // We only allow signed-in users to write markers.
+  // Guests still get "unique per day" locally on device.
+  allow create: if signedIn()
+    && request.resource.data.viewer == request.auth.uid
+    && request.resource.data.productId is string
+    && request.resource.data.dayKey is string
+    && request.resource.data.createdAt == request.time;
+
+  // No updates, no deletes
+  allow read: if isAdmin();
+  allow update, delete: if false;
+}
+
+function canIncrementViewCount() {
+  // Allow ANY signed-in viewer to increment viewCount by exactly +1
+  // (no other fields may change). This is needed because the owner-only
+  // rule would otherwise block view counting.
+  return signedIn()
+    && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+      'viewCount',
+      'updatedAt',
+    ])
+    && request.resource.data.viewCount == (resource.data.viewCount + 1);
+}
+
+// Then, inside match /products/{productId} add canIncrementViewCount() to update:
+// allow update: if isAdmin() || isOwner() || canIncrementViewCount();
