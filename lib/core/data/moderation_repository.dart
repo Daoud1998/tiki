@@ -14,7 +14,8 @@ class ReportTargetType {
 
 /// Lightweight block entry.
 class BlockEntry {
-  final String sellerKey; // usually sellerId (UID) or phone key if you still use phone keys.
+  final String
+      sellerKey; // usually sellerId (UID) or phone key if you still use phone keys.
   final String? sellerId;
   final String? sellerPhone;
   final DateTime? createdAt;
@@ -31,8 +32,12 @@ class BlockEntry {
     final ts = d['createdAt'];
     return BlockEntry(
       sellerKey: doc.id,
-      sellerId: (d['sellerId'] ?? '').toString().trim().isEmpty ? null : d['sellerId'].toString(),
-      sellerPhone: (d['sellerPhone'] ?? '').toString().trim().isEmpty ? null : d['sellerPhone'].toString(),
+      sellerId: (d['sellerId'] ?? '').toString().trim().isEmpty
+          ? null
+          : d['sellerId'].toString(),
+      sellerPhone: (d['sellerPhone'] ?? '').toString().trim().isEmpty
+          ? null
+          : d['sellerPhone'].toString(),
       createdAt: ts is Timestamp ? ts.toDate() : null,
     );
   }
@@ -71,11 +76,19 @@ class ReportEntry {
       id: doc.id,
       reporterId: (d['reporterId'] ?? '').toString(),
       targetType: (d['targetType'] ?? '').toString(),
-      productId: (d['productId'] ?? '').toString().trim().isEmpty ? null : d['productId'].toString(),
-      sellerId: (d['sellerId'] ?? '').toString().trim().isEmpty ? null : d['sellerId'].toString(),
-      sellerPhone: (d['sellerPhone'] ?? '').toString().trim().isEmpty ? null : d['sellerPhone'].toString(),
+      productId: (d['productId'] ?? '').toString().trim().isEmpty
+          ? null
+          : d['productId'].toString(),
+      sellerId: (d['sellerId'] ?? '').toString().trim().isEmpty
+          ? null
+          : d['sellerId'].toString(),
+      sellerPhone: (d['sellerPhone'] ?? '').toString().trim().isEmpty
+          ? null
+          : d['sellerPhone'].toString(),
       reasonId: (d['reasonId'] ?? '').toString(),
-      note: (d['note'] ?? '').toString().trim().isEmpty ? null : d['note'].toString(),
+      note: (d['note'] ?? '').toString().trim().isEmpty
+          ? null
+          : d['note'].toString(),
       status: (d['status'] ?? 'open').toString(),
       createdAt: ts is Timestamp ? ts.toDate() : null,
     );
@@ -124,7 +137,8 @@ class ModerationRepository {
     await _blocksCol(uid).doc(key).set({
       'sellerKey': key,
       'sellerId': (sellerId ?? '').trim().isEmpty ? null : sellerId!.trim(),
-      'sellerPhone': (sellerPhone ?? '').trim().isEmpty ? null : sellerPhone!.trim(),
+      'sellerPhone':
+          (sellerPhone ?? '').trim().isEmpty ? null : sellerPhone!.trim(),
       'blockedBy': uid,
       'source': (source ?? '').trim().isEmpty ? null : source!.trim(),
       'createdAt': FieldValue.serverTimestamp(),
@@ -154,7 +168,8 @@ class ModerationRepository {
     return _blocksCol(uid)
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((s) => s.docs.map((d) => BlockEntry.fromDoc(d)).toList(growable: false));
+        .map((s) =>
+            s.docs.map((d) => BlockEntry.fromDoc(d)).toList(growable: false));
   }
 
   /// Stream of blocked keys only.
@@ -180,11 +195,14 @@ class ModerationRepository {
       'targetType': targetType,
       'productId': (productId ?? '').trim().isEmpty ? null : productId!.trim(),
       'sellerId': (sellerId ?? '').trim().isEmpty ? null : sellerId!.trim(),
-      'sellerPhone': (sellerPhone ?? '').trim().isEmpty ? null : sellerPhone!.trim(),
+      'sellerPhone':
+          (sellerPhone ?? '').trim().isEmpty ? null : sellerPhone!.trim(),
       'reasonId': reasonId.trim(),
       'note': (note ?? '').trim().isEmpty ? null : note!.trim(),
       'status': 'open',
+      // Keep both a server timestamp (for audit) and a numeric ms field (for ordering).
       'createdAt': FieldValue.serverTimestamp(),
+      'createdAtMs': DateTime.now().millisecondsSinceEpoch,
       'clientCreatedAtMs': DateTime.now().millisecondsSinceEpoch,
     };
 
@@ -205,6 +223,7 @@ class ModerationRepository {
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((s) => s.docs.map((d) => ReportEntry.fromDoc(d)).toList(growable: false));
+        .map((s) =>
+            s.docs.map((d) => ReportEntry.fromDoc(d)).toList(growable: false));
   }
 }

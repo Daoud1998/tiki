@@ -10,31 +10,30 @@ import '../firebase_options.dart';
 import 'app.dart';
 
 Future<void> bootstrap() async {
-  // Firebase may already be initialized on the native side (especially after Hot Restart).
-  // So we try to initialize, and if it already exists we just reuse it.
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } on FirebaseException catch (e) {
     if (e.code == 'duplicate-app') {
-      // Reuse the existing default app.
       Firebase.app();
     } else {
       rethrow;
     }
   }
 
-  // Sync FCM token to Firestore so Admin/Functions can notify the user.
-  _setupMessagingTokenSync();
+  // FCM token + Topics + write notifTopics to /users/{uid}
+  _setupMessaging();
 
   runApp(const LocalStoreProviderScope(child: TikiApp()));
 }
 
-void _setupMessagingTokenSync() {
-  // Listen for sign-in; when signed in, register token.
+void _setupMessaging() {
   FirebaseAuth.instance.authStateChanges().listen((user) async {
     if (user == null) return;
+
+    final uid = user.uid;
+    final phone = user.phoneNumber ?? '';
 
     try {
       final messaging = FirebaseMessaging.instance;
@@ -42,20 +41,79 @@ void _setupMessagingTokenSync() {
       // iOS + Android 13+: request permission (safe no-op on older Android).
       await messaging.requestPermission(alert: true, badge: true, sound: true);
 
+      // Topics (segments)
+      final topics = await _syncTopics(uid: uid, phone: phone);
+
+      // Token
       final token = await messaging.getToken();
+      debugPrint('FCM TOKEN = $token');
       if (token != null && token.isNotEmpty) {
-        await _saveToken(user.uid, token);
+        await _saveToken(uid, token);
       }
 
+      // Save topics on user profile for Firestore filtering (merge).
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        {
+          'notifTopics': topics,
+          'notifUpdatedAtMs': DateTime.now().millisecondsSinceEpoch,
+          'notifUpdatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      // Token refresh
       messaging.onTokenRefresh.listen((t) async {
         if (t.isNotEmpty) {
-          await _saveToken(user.uid, t);
+          await _saveToken(uid, t);
         }
       });
-    } catch (_) {
-      // Ignore token setup errors (app still works without push).
+
+      // If KYC status changes later, resync topics.
+      FirebaseFirestore.instance
+          .doc('kyc_requests/$uid')
+          .snapshots()
+          .listen((_) async {
+        await _syncTopics(uid: uid, phone: phone);
+      });
+    } catch (e) {
+      // App still works without push
+      debugPrint('FCM setup error: $e');
     }
   });
+}
+
+Future<List<String>> _syncTopics(
+    {required String uid, required String phone}) async {
+  final messaging = FirebaseMessaging.instance;
+
+  final isMr =
+      phone.trim().startsWith('+222') || phone.trim().startsWith('222');
+  final countryTopic = isMr ? 'country_mr' : 'country_eu';
+
+  // Determine verified via kyc_requests/{uid}.status == 'approved'
+  bool isVerified = false;
+  try {
+    final kyc = await FirebaseFirestore.instance.doc('kyc_requests/$uid').get();
+    isVerified = kyc.exists && (kyc.data()?['status'] == 'approved');
+  } catch (_) {
+    // ignore
+  }
+
+  final verifiedTopic = isVerified ? 'verified' : 'unverified';
+  final otherVerifiedTopic = isVerified ? 'unverified' : 'verified';
+  final otherCountryTopic = isMr ? 'country_eu' : 'country_mr';
+
+  // Always subscribe to all_users
+  await messaging.subscribeToTopic('all_users');
+
+  // Keep topics clean (unsubscribe from opposites, then subscribe to correct ones)
+  await messaging.unsubscribeFromTopic(otherVerifiedTopic);
+  await messaging.unsubscribeFromTopic(otherCountryTopic);
+
+  await messaging.subscribeToTopic(verifiedTopic);
+  await messaging.subscribeToTopic(countryTopic);
+
+  return <String>['all_users', verifiedTopic, countryTopic];
 }
 
 Future<void> _saveToken(String uid, String token) async {

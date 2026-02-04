@@ -10,6 +10,7 @@ import 'package:tiki/features/product/data/products_repository.dart';
 import 'package:tiki/features/product/domain/app_product.dart';
 import 'package:tiki/features/product/state/products_providers.dart';
 import '../../../core/mocks/promo_moderation.dart';
+import 'package:tiki/core/data/moderation_repository.dart';
 import '../../../core/storage/local_store.dart';
 import '../../../core/state/likes_controller.dart';
 import 'package:tiki/core/state/auth_state.dart';
@@ -972,14 +973,41 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
     if (result == null) return;
 
     final phone = (p.phone ?? '').trim();
+    final reasonId = (result['reasonId'] ?? 'other').trim();
+    final noteRaw = (result['note'] ?? '').toString().trim();
+
+    final store = ref.read(localStoreProvider);
+
+    // 1) Send to Firestore (so it appears in Admin > Reports)
+    var remoteOk = false;
+    try {
+      final mod = ModerationRepository();
+      await mod.submitReport(
+        targetType: 'product',
+        productId: p.id,
+        sellerId: p.sellerId,
+        sellerPhone: phone,
+        reasonId: reasonId.isEmpty ? 'other' : reasonId,
+        note: noteRaw.isEmpty ? null : noteRaw,
+        extra: <String, dynamic>{
+          'title': p.title,
+          'sellerName': p.sellerName,
+          'category': p.category,
+          'wilaya': p.wilaya,
+          'moughataa': p.moughataa,
+        },
+      );
+      remoteOk = true;
+    } catch (e) {
+      debugPrint('[report] submitReport failed: $e');
+    }
 
     try {
-      final store = ref.read(localStoreProvider);
       await store.addProductReport(
         productId: p.id,
         sellerPhone: phone,
-        reasonId: result['reasonId'] ?? 'other',
-        note: (result['note'] ?? '').trim().isEmpty ? null : result['note'],
+        reasonId: reasonId.isEmpty ? 'other' : reasonId,
+        note: noteRaw.isEmpty ? null : noteRaw,
       );
 
       // Auto-block after reporting (as requested).
@@ -988,14 +1016,26 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
       }
 
       if (!mounted) return;
-      _toast(tikkiTr(context,
-          ar: phone.isNotEmpty
+      final ar = remoteOk
+          ? (phone.isNotEmpty
               ? 'تم إرسال الإبلاغ وحظر البائع.'
-              : 'تم إرسال الإبلاغ.',
-          fr: phone.isNotEmpty
+              : 'تم إرسال الإبلاغ.')
+          : (phone.isNotEmpty
+              ? 'تم حظر البائع، لكن تعذر إرسال الإبلاغ. حاول لاحقاً.'
+              : 'تعذر إرسال الإبلاغ. حاول لاحقاً.');
+      final fr = remoteOk
+          ? (phone.isNotEmpty
               ? "Signalement envoyé + vendeur bloqué."
-              : "Signalement envoyé.",
-          en: phone.isNotEmpty ? "Reported + seller blocked." : "Reported."));
+              : "Signalement envoyé.")
+          : (phone.isNotEmpty
+              ? "Vendeur bloqué, mais échec de l'envoi du signalement."
+              : "Impossible d'envoyer le signalement.");
+      final en = remoteOk
+          ? (phone.isNotEmpty ? "Reported + seller blocked." : "Reported.")
+          : (phone.isNotEmpty
+              ? "Seller blocked, but report failed to send."
+              : "Couldn't send report.");
+      _toast(tikkiTr(context, ar: ar, fr: fr, en: en));
       context.pop();
     } catch (_) {
       _toast(tikkiTr(context,
@@ -1137,16 +1177,17 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                 final store = ref.read(localStoreProvider);
                 final auth = ref.read(authControllerProvider);
                 final uid = (auth.userId ?? '').trim();
-                final viewerKey = uid.isNotEmpty
-                    ? uid
-                    : await store.getOrCreateDeviceId();
+                final viewerKey =
+                    uid.isNotEmpty ? uid : await store.getOrCreateDeviceId();
 
                 // Unique per day (viewerKey = uid or device id)
-                final shouldCount =
-                    await store.markProductViewedToday(pid, viewerKey: viewerKey);
+                final shouldCount = await store.markProductViewedToday(pid,
+                    viewerKey: viewerKey);
 
                 if (shouldCount) {
-                  await ref.read(productsRepositoryProvider).incrementUniqueViewPerDay(
+                  await ref
+                      .read(productsRepositoryProvider)
+                      .incrementUniqueViewPerDay(
                         pid,
                         viewerKey: viewerKey,
                       );

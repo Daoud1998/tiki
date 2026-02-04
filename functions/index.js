@@ -1,16 +1,15 @@
-const admin = require("firebase-admin");
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const admin = require('firebase-admin');
+const functions = require('firebase-functions'); // 1st gen Firestore triggers (no Eventarc)
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 
 admin.initializeApp();
 const db = admin.firestore();
-const { Timestamp } = admin.firestore;
+const { Timestamp, FieldValue } = admin.firestore;
 
-
-const functions = require("firebase-functions"); // ✅ 1st gen Firestore triggers (بدون Eventarc)
+const REGION = 'europe-west1';
 
 function num(v, dflt) {
-  if (typeof v === "number" && !Number.isNaN(v)) return v;
+  if (typeof v === 'number' && !Number.isNaN(v)) return v;
   const asNum = Number(v);
   return Number.isFinite(asNum) ? asNum : dflt;
 }
@@ -18,14 +17,14 @@ function num(v, dflt) {
 function strArray(v) {
   if (!Array.isArray(v)) return [];
   return v
-    .filter((x) => typeof x === "string" && x.trim().length)
+    .filter((x) => typeof x === 'string' && x.trim().length)
     .map((s) => s.trim());
 }
 
 function utcDayKey(d) {
   const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
@@ -35,124 +34,58 @@ function utcDayKey(d) {
  * - Old:  { ...productFields }
  */
 function unwrapIncoming(raw) {
-  if (raw && typeof raw === "object") {
+  if (raw && typeof raw === 'object') {
     const maybeData = raw.data;
-    if (
-      maybeData &&
-      typeof maybeData === "object" &&
-      !Array.isArray(maybeData)
-    ) {
-      const pid = (raw.productId || raw.id || maybeData.id || "").toString();
+    if (maybeData && typeof maybeData === 'object' && !Array.isArray(maybeData)) {
+      const pid = (raw.productId || raw.id || maybeData.id || '').toString();
       return { productId: pid, payload: maybeData };
     }
-    const pid = (raw.productId || raw.id || "").toString();
+    const pid = (raw.productId || raw.id || '').toString();
     return { productId: pid, payload: raw };
   }
-  return { productId: "", payload: {} };
+  return { productId: '', payload: {} };
 }
 
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-async function sendToUser(uid, title, body, data) {
-  // 1) Always write an inbox item (حتى لو ما فيه tokens)
-  const nowMs = Date.now();
-  const itemRef = db
-    .collection("user_inbox")
-    .doc(uid)
-    .collection("items")
-    .doc();
-
-  await itemRef.set({
-    title,
-    body,
-    data: data || {},
-    read: false,
-    createdAt: Timestamp.fromMillis(nowMs),
-    createdAtMs: nowMs,
-  });
-
-  // 2) Send push notifications (if tokens exist)
-  const tokensSnap = await db
-    .collection("user_devices")
-    .doc(uid)
-    .collection("tokens")
-    .get();
-
-  const tokens = tokensSnap.docs
-    .map((d) => d.id)
-    .filter((t) => typeof t === "string" && t.length > 10);
-
-  if (!tokens.length) return;
-
-  const payloadData = {};
-  // FCM data must be strings
-  Object.entries(data || {}).forEach(([k, v]) => {
-    payloadData[k] = v == null ? "" : String(v);
-  });
-
-  const batches = chunk(tokens, 500);
-  for (const batch of batches) {
-    const resp = await admin.messaging().sendEachForMulticast({
-      tokens: batch,
-      notification: { title, body },
-      data: payloadData,
-    });
-
-    // Clean up invalid tokens
-    const toDelete = [];
-    resp.responses.forEach((r, idx) => {
-      if (!r.success) {
-        const code = r.error && r.error.code ? r.error.code : "";
-        if (
-          code === "messaging/registration-token-not-registered" ||
-          code === "messaging/invalid-registration-token"
-        ) {
-          toDelete.push(batch[idx]);
-        }
-      }
-    });
-
-    if (toDelete.length) {
-      const uidRef = db
-        .collection("user_devices")
-        .doc(uid)
-        .collection("tokens");
-      await Promise.all(
-        toDelete.map((t) =>
-          uidRef
-            .doc(t)
-            .delete()
-            .catch(() => null),
-        ),
-      );
-    }
+async function assertAdmin(uid) {
+  const snap = await db.doc(`admins/${uid}`).get();
+  if (!snap.exists) {
+    throw new HttpsError('permission-denied', 'ADMIN_ONLY');
   }
 }
 
-// --- 1) Create product (enforce limits + pending for sensitive categories) ---
-exports.createProduct = onCall({ region: "europe-west1" }, async (request) => {
+function asString(v) {
+  return (v ?? '').toString().trim();
+}
+
+function pickType(v) {
+  const t = asString(v);
+  if (t === 'sales' || t === 'deals' || t === 'system') return t;
+  return 'system';
+}
+
+/**
+ * Create product (Europe region)
+ * Enforces verified/unverified limits and optional pending review for fast-track categories.
+ */
+exports.createProduct = onCall({ region: REGION }, async (request) => {
   if (!request.auth || !request.auth.uid) {
-    throw new HttpsError("unauthenticated", "AUTH_REQUIRED");
+    throw new HttpsError('unauthenticated', 'AUTH_REQUIRED');
   }
 
   const uid = request.auth.uid;
   const { productId, payload } = unwrapIncoming(request.data || {});
-  const data = payload && typeof payload === "object" ? payload : {};
+  const data = payload && typeof payload === 'object' ? payload : {};
 
   // Basic safety: sellerId must match caller.
   if (data.sellerId && data.sellerId !== uid) {
-    throw new HttpsError("failed-precondition", "SELLER_MISMATCH");
+    throw new HttpsError('failed-precondition', 'SELLER_MISMATCH');
   }
 
-  const limitsRef = db.doc("app_settings/limits");
-  const kycSettingsRef = db.doc("app_settings/kyc");
+  const limitsRef = db.doc('app_settings/limits');
+  const kycSettingsRef = db.doc('app_settings/kyc');
   const kycReqRef = db.doc(`kyc_requests/${uid}`);
   const statsRef = db.doc(`user_stats/${uid}`);
-  const productsCol = db.collection("products");
+  const productsCol = db.collection('products');
 
   const nowDate = new Date();
   const nowMs = Date.now();
@@ -160,21 +93,18 @@ exports.createProduct = onCall({ region: "europe-west1" }, async (request) => {
   const nowTs = Timestamp.fromMillis(nowMs);
 
   return db.runTransaction(async (tx) => {
-    const [limitsSnap, kycSettingsSnap, kycReqSnap, statsSnap] =
-      await Promise.all([
-        tx.get(limitsRef),
-        tx.get(kycSettingsRef),
-        tx.get(kycReqRef),
-        tx.get(statsRef),
-      ]);
+    const [limitsSnap, kycSettingsSnap, kycReqSnap, statsSnap] = await Promise.all([
+      tx.get(limitsRef),
+      tx.get(kycSettingsRef),
+      tx.get(kycReqRef),
+      tx.get(statsRef),
+    ]);
 
     const limits = limitsSnap.exists ? limitsSnap.data() || {} : {};
-    const kycSettings = kycSettingsSnap.exists
-      ? kycSettingsSnap.data() || {}
-      : {};
+    const kycSettings = kycSettingsSnap.exists ? kycSettingsSnap.data() || {} : {};
     const kycReq = kycReqSnap.exists ? kycReqSnap.data() || {} : {};
 
-    const isVerified = kycReqSnap.exists && kycReq.status === "approved";
+    const isVerified = kycReqSnap.exists && kycReq.status === 'approved';
 
     const unverifiedMaxActive = num(limits.unverifiedMaxActive, 2);
     const unverifiedDailyLimit = num(limits.unverifiedDailyLimit, 3);
@@ -183,8 +113,7 @@ exports.createProduct = onCall({ region: "europe-west1" }, async (request) => {
     const fastCats = strArray(kycSettings.fastTrackCategories);
 
     const stats = statsSnap.exists ? statsSnap.data() || {} : {};
-    let dailyDate =
-      typeof stats.dailyDate === "string" ? stats.dailyDate : todayKey;
+    let dailyDate = typeof stats.dailyDate === 'string' ? stats.dailyDate : todayKey;
     let dailyCount = num(stats.dailyCount, 0);
     let activeCount = num(stats.activeCount, 0);
 
@@ -196,57 +125,57 @@ exports.createProduct = onCall({ region: "europe-west1" }, async (request) => {
     // Enforce limits
     if (!isVerified) {
       if (unverifiedDailyLimit > 0 && dailyCount >= unverifiedDailyLimit) {
-        throw new HttpsError("resource-exhausted", "DAILY_LIMIT_REACHED", {
-          reason: "daily",
+        throw new HttpsError('resource-exhausted', 'DAILY_LIMIT_REACHED', {
+          reason: 'daily',
           dailyLimit: unverifiedDailyLimit,
         });
       }
       if (unverifiedMaxActive > 0 && activeCount >= unverifiedMaxActive) {
-        throw new HttpsError("resource-exhausted", "ACTIVE_LIMIT_REACHED", {
-          reason: "max_active",
+        throw new HttpsError('resource-exhausted', 'ACTIVE_LIMIT_REACHED', {
+          reason: 'max_active',
           maxActive: unverifiedMaxActive,
         });
       }
     } else if (verifiedMaxActive > 0 && activeCount >= verifiedMaxActive) {
-      throw new HttpsError("resource-exhausted", "ACTIVE_LIMIT_REACHED", {
-        reason: "max_active",
+      throw new HttpsError('resource-exhausted', 'ACTIVE_LIMIT_REACHED', {
+        reason: 'max_active',
         maxActive: verifiedMaxActive,
       });
     }
 
     const categoryId =
-      (typeof data.categoryId === "string" && data.categoryId.trim()) ||
-      (typeof data.category === "string" && data.category.trim()) ||
-      "";
+      (typeof data.categoryId === 'string' && data.categoryId.trim()) ||
+      (typeof data.category === 'string' && data.category.trim()) ||
+      '';
 
-    const needsReview =
-      !isVerified && categoryId && fastCats.includes(categoryId);
-    const status = needsReview ? "pending" : "active";
+    const needsReview = !isVerified && categoryId && fastCats.includes(categoryId);
+    const status = needsReview ? 'pending' : 'active';
 
     const requestedId =
       (productId && productId.trim()) ||
-      (typeof data.id === "string" && data.id.trim()) ||
-      "";
+      (typeof data.id === 'string' && data.id.trim()) ||
+      '';
 
-    const docRef = requestedId
-      ? productsCol.doc(requestedId)
-      : productsCol.doc();
+    const docRef = requestedId ? productsCol.doc(requestedId) : productsCol.doc();
 
+    // Build final product doc
     const out = { ...data };
+
     out.id = docRef.id;
     out.sellerId = uid;
     out.status = status;
 
-    // timestamps expected by app queries
+    // Timestamps expected by the app queries
     out.createdAt = nowTs;
     out.updatedAt = nowTs;
     out.createdAtMs = nowMs;
     out.updatedAtMs = nowMs;
 
-    if (status === "active") {
+    if (status === 'active') {
       out.publishedAt = nowTs;
       out.publishedAtMs = nowMs;
     } else {
+      // Ensure field exists so ordering doesn't break older feeds.
       out.publishedAt = out.publishedAt || null;
     }
 
@@ -254,7 +183,7 @@ exports.createProduct = onCall({ region: "europe-west1" }, async (request) => {
 
     // Update counters
     dailyCount += 1;
-    if (status === "active") activeCount += 1;
+    if (status === 'active') activeCount += 1;
 
     tx.set(
       statsRef,
@@ -271,67 +200,57 @@ exports.createProduct = onCall({ region: "europe-west1" }, async (request) => {
   });
 });
 
-// --- 2) Auto notify user when admin moderates a product ---
+/**
+ * Notify user when Admin moderates a product (pending -> active/rejected).
+ * 1st gen trigger avoids Eventarc permission issues.
+ */
 exports.onProductModerated = functions
-  .region("europe-west1")
-  .firestore.document("products/{productId}")
+  .region(REGION)
+  .firestore
+  .document('products/{productId}')
   .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};
 
-    const oldS = (before.status || "").toString();
-    const newS = (after.status || "").toString();
+    const oldS = (before.status || '').toString();
+    const newS = (after.status || '').toString();
 
-    // نهتم فقط بتغيير الحالة من pending -> active/rejected
     if (oldS === newS) return null;
-    if (oldS !== "pending") return null;
-    if (newS !== "active" && newS !== "rejected") return null;
+    if (oldS !== 'pending') return null;
+    if (newS !== 'active' && newS !== 'rejected') return null;
 
-    const uid = (after.sellerId || after.ownerUserId || "").toString();
+    const uid = (after.sellerId || after.ownerUserId || '').toString();
     if (!uid) return null;
 
     const productId = context.params.productId;
-    const title = (
-      after.title ||
-      after.name ||
-      after.titles?.ar ||
-      ""
-    ).toString();
 
-    const notifTitle =
-      newS === "active" ? "تمت الموافقة على إعلانك" : "تم رفض إعلانك";
-    const reason = (after.rejectReason || "").toString();
-    const notifBody =
-      newS === "active"
-        ? "إعلانك أصبح ظاهرًا الآن للناس."
-        : reason.isNotEmpty
-          ? `تم رفض إعلانك. السبب: ${reason}`
-          : "تم رفض إعلانك.";
+    const notifTitle = newS === 'active' ? 'تمت الموافقة على إعلانك' : 'تم رفض إعلانك';
+    const reason = (after.rejectReason || '').toString();
+    const notifBody = newS === 'active'
+      ? 'إعلانك أصبح ظاهرًا الآن للناس.'
+      : (reason ? `تم رفض إعلانك. السبب: ${reason}` : 'تم رفض إعلانك.');
 
-    // 1) Inbox داخل Firestore
-    await admin
-      .firestore()
-      .collection("user_inbox")
-      .doc(uid)
-      .collection("items")
+    // 1) Inbox
+    const inboxRef = await db
+      .collection('user_inbox').doc(uid)
+      .collection('items')
       .add({
-        type: "product_moderation",
+        scope: 'product_moderation',
+        type: 'sales',
         productId,
         status: newS,
-        title: title.isEmpty ? productId : title,
+        title: notifTitle,
         body: notifBody,
+        deepLink: `/product/${productId}`,
         read: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         createdAtMs: Date.now(),
       });
 
-    // 2) Push عبر FCM (لو عنده tokens)
-    const tokensSnap = await admin
-      .firestore()
-      .collection("user_devices")
-      .doc(uid)
-      .collection("tokens")
-      .get();
+    // 2) Push
+    const tokensSnap = await db
+      .collection('user_devices').doc(uid)
+      .collection('tokens').get();
 
     const tokens = tokensSnap.docs.map((d) => d.id).filter(Boolean);
     if (!tokens.length) return null;
@@ -339,18 +258,23 @@ exports.onProductModerated = functions
     const resp = await admin.messaging().sendEachForMulticast({
       tokens,
       notification: { title: notifTitle, body: notifBody },
-      data: { type: "product_moderation", productId, status: newS },
+      data: {
+        type: 'product_moderation',
+        productId: String(productId),
+        status: String(newS),
+        inboxId: inboxRef.id,
+      },
     });
 
-    // تنظيف التوكنات غير الصالحة
+    // Cleanup invalid tokens
     const deletions = [];
     for (let i = 0; i < resp.responses.length; i++) {
       const r = resp.responses[i];
       if (!r.success) {
-        const code = r.error && r.error.code ? r.error.code : "";
+        const code = (r.error && r.error.code) ? r.error.code : '';
         if (
-          code.includes("registration-token-not-registered") ||
-          code.includes("invalid-argument")
+          String(code).includes('registration-token-not-registered') ||
+          String(code).includes('invalid-argument')
         ) {
           deletions.push(tokensSnap.docs[i].ref.delete());
         }
@@ -360,3 +284,163 @@ exports.onProductModerated = functions
 
     return null;
   });
+
+/**
+ * Admin: send notification to:
+ * - all users (topic: all_users)
+ * - a topic (verified/unverified/country_mr/country_eu)
+ * - a specific user UID (via stored tokens)
+ *
+ * Writes to Firestore so user can always see notifications even if push fails:
+ * - Direct: user_inbox/{uid}/items/{id}
+ * - Broadcast: broadcast_notifications/{id}
+ * - Log: notifications_log/{id} (admin only)
+ */
+exports.sendAdminNotification = onCall({ region: REGION }, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'AUTH_REQUIRED');
+  }
+  const adminUid = request.auth.uid;
+  await assertAdmin(adminUid);
+
+  const d = request.data || {};
+  const mode = asString(d.mode); // 'all' | 'topic' | 'user'
+  const notifType = pickType(d.notifType);
+
+  const title = asString(d.title);
+  const body = asString(d.body);
+  const deepLink = asString(d.deepLink);
+
+  if (!title || !body) {
+    throw new HttpsError('invalid-argument', 'TITLE_BODY_REQUIRED');
+  }
+
+  const nowMs = Date.now();
+
+  // Always log for admins
+  const logRef = await db.collection('notifications_log').add({
+    mode: mode || 'all',
+    notifType,
+    title,
+    body,
+    deepLink: deepLink || null,
+    createdAt: FieldValue.serverTimestamp(),
+    createdAtMs: nowMs,
+    createdBy: adminUid,
+    topic: mode === 'topic' || mode === 'all' ? (asString(d.topic) || 'all_users') : null,
+    targetUid: mode === 'user' ? asString(d.uid) : null,
+  });
+
+  if (mode === 'user') {
+    const uid = asString(d.uid);
+    if (!uid) throw new HttpsError('invalid-argument', 'UID_REQUIRED');
+
+    // Firestore inbox item (source of truth)
+    const inboxRef = await db
+      .collection('user_inbox').doc(uid)
+      .collection('items')
+      .add({
+        scope: 'admin_direct',
+        type: notifType,
+        title,
+        body,
+        deepLink: deepLink || null,
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+        createdAtMs: nowMs,
+        createdBy: adminUid,
+      });
+
+    // Push to user's tokens
+    const tokensSnap = await db
+      .collection('user_devices').doc(uid)
+      .collection('tokens').get();
+
+    const tokens = tokensSnap.docs.map((x) => x.id).filter(Boolean);
+    if (!tokens.length) {
+      return {
+        ok: true,
+        mode: 'user',
+        uid,
+        logId: logRef.id,
+        inboxId: inboxRef.id,
+        push: { sent: 0, note: 'NO_TOKENS' },
+      };
+    }
+
+    const resp = await admin.messaging().sendEachForMulticast({
+      tokens,
+      notification: { title, body },
+      data: {
+        type: 'admin_notification',
+        scope: 'user',
+        notifType: notifType,
+        deepLink: deepLink || '',
+        inboxId: inboxRef.id,
+      },
+    });
+
+    // Cleanup invalid tokens
+    const deletions = [];
+    for (let i = 0; i < resp.responses.length; i++) {
+      const r = resp.responses[i];
+      if (!r.success) {
+        const code = (r.error && r.error.code) ? r.error.code : '';
+        if (
+          String(code).includes('registration-token-not-registered') ||
+          String(code).includes('invalid-argument')
+        ) {
+          deletions.push(tokensSnap.docs[i].ref.delete());
+        }
+      }
+    }
+    await Promise.all(deletions);
+
+    return {
+      ok: true,
+      mode: 'user',
+      uid,
+      logId: logRef.id,
+      inboxId: inboxRef.id,
+      push: { sent: resp.successCount, failed: resp.failureCount },
+    };
+  }
+
+  // mode: all/topic -> send via FCM topic + write broadcast doc
+  const topic = mode === 'topic' ? asString(d.topic) : 'all_users';
+  const topicName = topic || 'all_users';
+
+  const broadcastRef = await db.collection('broadcast_notifications').add({
+    scope: mode === 'topic' ? 'admin_topic' : 'admin_all',
+    type: notifType,
+    title,
+    body,
+    deepLink: deepLink || null,
+    topics: [topicName],
+    createdAt: FieldValue.serverTimestamp(),
+    createdAtMs: nowMs,
+    createdBy: adminUid,
+    logId: logRef.id,
+  });
+
+  const msg = await admin.messaging().send({
+    topic: topicName,
+    notification: { title, body },
+    data: {
+      type: 'admin_notification',
+      scope: mode === 'topic' ? 'topic' : 'all',
+      notifType: notifType,
+      deepLink: deepLink || '',
+      broadcastId: broadcastRef.id,
+    },
+  });
+
+  return {
+    ok: true,
+    mode: mode === 'topic' ? 'topic' : 'all',
+    topic: topicName,
+    logId: logRef.id,
+    broadcastId: broadcastRef.id,
+    messageId: msg,
+  };
+});

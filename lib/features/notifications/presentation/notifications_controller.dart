@@ -3,19 +3,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:tiki/features/notifications/shared/notifications_i18n.dart';
 
+import '../data/firestore_notifications_repository.dart';
 import '../data/mock_notifications_repository.dart';
 import '../domain/app_notification.dart';
 
 final notificationsRepositoryProvider =
     Provider<NotificationsRepository>((ref) {
-  return MockNotificationsRepository();
+  // Firestore-backed repository (user_inbox + broadcast_notifications)
+  return FirestoreNotificationsRepository();
 });
 
 @immutable
 class NotificationsState {
   final List<AppNotification> items;
   final AppNotificationType? filter; // null = all
-  final bool inAppNotificationsEnabled; // mock toggle (not push)
+  final bool inAppNotificationsEnabled; // in-app toggle (not push)
   final bool hasSeenEnableCard;
 
   const NotificationsState({
@@ -100,7 +102,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
         state.copyWith(items: state.items.where((n) => n.id != id).toList());
   }
 
-  /// This is ONLY in-app toggle for now (no Firebase Messaging yet).
+  /// In-app toggle only.
   void enableInAppNotifications() {
     state = state.copyWith(
       inAppNotificationsEnabled: true,
@@ -112,9 +114,7 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     state = state.copyWith(hasSeenEnableCard: true);
   }
 
-  /// Push a new notification into the center (works offline, scales later).
-  ///
-  /// Use [id] when you want to prevent duplicates (recommended).
+  /// Push a new notification into the center.
   void push({
     required AppNotificationType type,
     required LocalizedText title,
@@ -127,7 +127,6 @@ class NotificationsController extends StateNotifier<NotificationsState> {
         ? 'n_${DateTime.now().millisecondsSinceEpoch}'
         : id!.trim();
 
-    // Prevent duplicates (same id) to avoid spam on rebuilds.
     if (state.items.any((e) => e.id == nid)) return;
 
     final n = AppNotification(
@@ -145,7 +144,6 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     state = state.copyWith(items: next);
   }
 
-  /// Convenience wrapper when you already have plain strings.
   void pushText({
     required AppNotificationType type,
     required String arTitle,
@@ -169,10 +167,6 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   }
 }
 
-/// Single source of truth for unread badge counts.
-///
-/// Use this provider anywhere you want to show a badge on the bell icon or
-/// on the You tab in the bottom navigation.
 final notificationsUnreadCountProvider = Provider<int>((ref) {
   final s = ref.watch(notificationsControllerProvider);
   return s.unreadCount;
