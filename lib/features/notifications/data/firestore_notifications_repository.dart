@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../domain/app_notification.dart';
 import '../shared/notifications_i18n.dart';
-
+import 'notifications_repository.dart';
 
 /// Firestore-backed notifications repository.
 ///
@@ -11,8 +11,8 @@ import '../shared/notifications_i18n.dart';
 /// - user_inbox/{uid}/items (personal notifications)
 /// - broadcast_notifications (global / topic notifications)
 ///
-/// Broadcast notifications are filtered client-side by [targetTopic] against
-/// user's topics stored in users/{uid}.notifTopics (array of strings).
+/// Broadcast notifications are filtered client-side by targetTopic against
+/// user's notifTopics stored in users/{uid}.notifTopics (array of strings).
 class FirestoreNotificationsRepository implements NotificationsRepository {
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
@@ -62,7 +62,7 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
       final targetTopic =
           (data['targetTopic'] ?? data['topic'] ?? '').toString().trim();
 
-      // If no topic specified -> treat as public broadcast.
+      // If topic specified, show only if user is subscribed.
       if (targetTopic.isNotEmpty && !topics.contains(targetTopic)) continue;
 
       final n = _mapDocToNotification(d.id, data);
@@ -72,7 +72,7 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
     // Sort newest first
     items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    // De-dup by id
+    // De-dup by id (in case the same id appears in both sources)
     final seen = <String>{};
     final dedup = <AppNotification>[];
     for (final n in items) {
@@ -100,7 +100,7 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
         }
       }
     } catch (_) {
-      // ignore
+      // Ignore and keep default
     }
 
     return topics;
@@ -108,18 +108,13 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
 
   AppNotification? _mapDocToNotification(String id, Map<String, dynamic> d) {
     final type = _parseType(d['type'] ?? d['kind'] ?? d['category']);
-    final title = _parseLocalized(
-      d['title'] ?? d['titleText'] ?? d['subject'],
-      fallback: 'Notification',
-    );
-    final body = _parseLocalized(
-      d['body'] ?? d['message'] ?? d['text'],
-      fallback: '',
-    );
+    final title = _parseLocalized(d['title'] ?? d['titleText'] ?? d['subject'],
+        fallback: 'Notification');
+    final body =
+        _parseLocalized(d['body'] ?? d['message'] ?? d['text'], fallback: '');
     final route = (d['targetRoute'] ?? d['route'] ?? d['deeplink'] ?? '')
         .toString()
         .trim();
-
     final createdAt = _parseDate(d['createdAt'], d['createdAtMs']);
     final isRead = (d['read'] is bool) ? (d['read'] as bool) : false;
 
@@ -136,34 +131,37 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
 
   AppNotificationType _parseType(dynamic v) {
     final s = (v ?? '').toString().toLowerCase().trim();
-
-    // product moderation / listing status
     if (s == 'sales' || s == 'listing' || s == 'product_moderation') {
       return AppNotificationType.sales;
     }
-
-    // promos
     if (s == 'deals' || s == 'promo' || s == 'offers') {
       return AppNotificationType.deals;
     }
-
     return AppNotificationType.system;
   }
 
   LocalizedText _parseLocalized(dynamic v, {required String fallback}) {
     // Map form: {ar, fr, en}
     if (v is Map) {
-      final ar = (v['ar'] ?? v['AR'] ?? '').toString().trim();
-      final fr = (v['fr'] ?? v['FR'] ?? '').toString().trim();
-      final en = (v['en'] ?? v['EN'] ?? '').toString().trim();
+      final ar = (v['ar'] ?? v['AR'] ?? '').toString();
+      final fr = (v['fr'] ?? v['FR'] ?? '').toString();
+      final en = (v['en'] ?? v['EN'] ?? '').toString();
 
-      final any = ar.isNotEmpty ? ar : (fr.isNotEmpty ? fr : en);
-      final f = any.isNotEmpty ? any : fallback;
+      String choose(String a, String b, String c) {
+        final aa = a.trim();
+        if (aa.isNotEmpty) return aa;
+        final bb = b.trim();
+        if (bb.isNotEmpty) return bb;
+        final cc = c.trim();
+        if (cc.isNotEmpty) return cc;
+        return fallback;
+      }
 
+      final chosen = choose(ar, fr, en);
       return LocalizedText(
-        ar: ar.isEmpty ? f : ar,
-        fr: fr.isEmpty ? f : fr,
-        en: en.isEmpty ? f : en,
+        ar: ar.trim().isEmpty ? chosen : ar.trim(),
+        fr: fr.trim().isEmpty ? chosen : fr.trim(),
+        en: en.trim().isEmpty ? chosen : en.trim(),
       );
     }
 
