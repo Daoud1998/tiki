@@ -1,9 +1,13 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:tiki/features/content/presentation/content_data.dart';
 
 import '../../../core/utils/formatters.dart';
+import '../../../core/mocks/promo_moderation.dart';
+import '../../../core/state/auth_state.dart';
+import '../../product/state/products_providers.dart';
 import '../../notifications/presentation/notifications_controller.dart';
 import '../domain/service_receipt.dart';
 import '../services/renewal_reminders.dart';
@@ -18,6 +22,68 @@ class MyReceiptsScreen extends ConsumerStatefulWidget {
 }
 
 class _MyReceiptsScreenState extends ConsumerState<MyReceiptsScreen> {
+
+  @override
+  void initState() {
+    super.initState();
+    // Sync approvals from Firestore (products + promo_ads) to local receipts.
+    // This makes invoices auto-activate after admin approval.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncApprovals();
+    });
+  }
+
+  Future<void> _syncApprovals() async {
+    final a = ref.read(authControllerProvider);
+    final uid = (a.userId ?? '').trim();
+    if (uid.isEmpty || uid == 'guest') return;
+
+    final receipts = ref.read(receiptsControllerProvider.notifier);
+
+    // 1) Products: activate pending VIP receipts when promo becomes approved.
+    try {
+      final products = await ref.read(sellerProductsProvider(uid).future);
+      for (final p in products) {
+        final attrs = p.attrs ?? const <String, String>{};
+        final st = (attrs[PromoKeys.promoStatus] ?? '').trim();
+        if (st != PromoStatus.approved) continue;
+
+        final apprMsStr = (attrs[PromoKeys.promoApprAtMs] ?? '').trim();
+        final apprMs = int.tryParse(apprMsStr) ?? 0;
+        if (apprMs <= 0) continue;
+
+        await receipts.activateLatestPendingProductVip(
+          productId: p.id,
+          approvedAt: DateTime.fromMillisecondsSinceEpoch(apprMs),
+        );
+      }
+    } catch (_) {}
+
+    // 2) Promo ads: activate pending ad VIP receipts when promoStatus becomes approved.
+    try {
+      final qs = await FirebaseFirestore.instance
+          .collection('promo_ads')
+          .where('ownerUserId', isEqualTo: uid)
+          .where('promoStatus', isEqualTo: 'approved')
+          .limit(50)
+          .get();
+
+      for (final d in qs.docs) {
+        final m = d.data();
+        final apprMs = (m['promoApprAtMs'] is int)
+            ? (m['promoApprAtMs'] as int)
+            : int.tryParse('${m['promoApprAtMs']}') ?? 0;
+        if (apprMs <= 0) continue;
+
+        await receipts.activateLatestPendingPromoAdVip(
+          adId: d.id,
+          approvedAt: DateTime.fromMillisecondsSinceEpoch(apprMs),
+        );
+      }
+    } catch (_) {}
+  }
+
+
   bool _selectionMode = false;
   final Set<String> _selected = <String>{};
 

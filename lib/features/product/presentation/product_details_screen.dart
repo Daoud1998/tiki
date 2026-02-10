@@ -19,6 +19,8 @@ import '../../../core/i18n/tikki_tr.dart';
 import '../../../core/data/ma_locations.dart';
 import '../../../core/data/ma_catalog.dart';
 import '../../../core/data/publish_taxonomy.dart';
+import '../../../core/data/ma_model_suggestions.dart';
+import '../../../core/data/ma_suggestions.dart';
 import '../../../core/constants/support_contacts.dart';
 
 /// Product details screen (keeps bottom navigation because it's inside ShellRoute).
@@ -607,6 +609,44 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
 
       if (k == 'skills') {
         return _formatSkills(raw);
+      }
+
+      // Model/series (phones/cars): localize to current UI language when possible.
+      // Publish Wizard may store the model as AR/FR/EN label depending on locale,
+      // so in details we map it back to the known suggestions and re-localize.
+      if (k == 'model') {
+        final typeHint = (() {
+          final t = (p.attrs['type'] ?? '').toString().trim();
+          if (t.isNotEmpty) return t;
+          final b = (p.attrs['brand'] ?? '').toString().trim();
+          if (b.isNotEmpty) return b;
+          final o = (p.attrs['type_other'] ?? '').toString().trim();
+          return o;
+        })();
+
+        final list = modelSuggestionsFor(
+          categoryId: p.category,
+          subCategoryId: p.subCategory,
+          typeIdOrLabel: typeHint,
+        );
+
+        if (list.isNotEmpty) {
+          final nRaw = MaSuggestionNorm.norm(raw);
+          if (nRaw.isNotEmpty) {
+            for (final it in list) {
+              final hay = <String>{
+                MaSuggestionNorm.norm(it.id),
+                MaSuggestionNorm.norm(it.label.ar),
+                MaSuggestionNorm.norm(it.label.fr),
+                MaSuggestionNorm.norm(it.label.en),
+                for (final a in it.aliases) MaSuggestionNorm.norm(a),
+              };
+              if (hay.contains(nRaw)) {
+                return it.display(context);
+              }
+            }
+          }
+        }
       }
 
       // Variant/type: first try to localize using the same taxonomy as Publish Wizard.
@@ -1652,9 +1692,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                                   })()),
                               _InfoRow(
                                   label: tikkiTr(ctx,
-                                      ar: 'رقم العملية',
+                                      ar: 'رقم الدفع',
                                       fr: 'Transaction',
-                                      en: 'Transaction'),
+                                      en: 'Payment'),
                                   value: tx.isEmpty ? '—' : tx),
                               _InfoRow(
                                   label: tikkiTr(ctx,
@@ -1772,30 +1812,31 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                       ),
                     ],
                     // Contact buttons
-                    _ContactBar(
-                      phone: prod.phone,
-                      allowWhatsApp: prod.allowWhatsApp,
-                      allowCall: prod.allowCall,
-                      onOpenWhatsApp: (p) => _openExternal(
-                        _waMe(
-                          p,
-                          tikkiTr(
-                            context,
-                            ar: 'مرحبا، أريد هذا المنتج: ${prod.title}',
-                            fr: 'Bonjour, je veux ce produit: ${prod.title}',
-                            en: 'Hello, I want this item: ${prod.title}',
+                    if (!isOwner)
+                      _ContactBar(
+                        phone: prod.phone,
+                        allowWhatsApp: prod.allowWhatsApp,
+                        allowCall: prod.allowCall,
+                        onOpenWhatsApp: (p) => _openExternal(
+                          _waMe(
+                            p,
+                            tikkiTr(
+                              context,
+                              ar: 'مرحبا، أريد هذا المنتج: ${prod.title}',
+                              fr: 'Bonjour, je veux ce produit: ${prod.title}',
+                              en: 'Hello, I want this item: ${prod.title}',
+                            ),
                           ),
                         ),
+                        onOpenCall: (p) =>
+                            _openExternal(Uri.parse('tel:${_digitsOnly(p)}')),
+                        onMissingPhone: () => _toast(tikkiTr(
+                          context,
+                          ar: 'رقم الهاتف غير متوفر حاليا',
+                          fr: 'Numéro indisponible',
+                          en: 'Phone not available',
+                        )),
                       ),
-                      onOpenCall: (p) =>
-                          _openExternal(Uri.parse('tel:${_digitsOnly(p)}')),
-                      onMissingPhone: () => _toast(tikkiTr(
-                        context,
-                        ar: 'رقم الهاتف غير متوفر حاليا',
-                        fr: 'Numéro indisponible',
-                        en: 'Phone not available',
-                      )),
-                    ),
                   ],
                 ),
               ),

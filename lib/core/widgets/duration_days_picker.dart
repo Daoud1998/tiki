@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../app/localization/l10n.dart';
+
 /// Simple day picker with presets + stepper.
 /// Use [minDays]=1 and [maxDays]=60 for VIP durations.
 class DurationDaysPicker extends StatelessWidget {
@@ -52,7 +54,7 @@ class DurationDaysPicker extends StatelessWidget {
         Row(
           children: [
             IconButton(
-              tooltip: 'ناقص يوم',
+              tooltip: context.tr('duration.decrease_day'),
               onPressed: () => onChanged(_clamp(days - 1)),
               icon: const Icon(Icons.remove_circle_outline),
             ),
@@ -67,14 +69,17 @@ class DurationDaysPicker extends StatelessWidget {
               ),
             ),
             IconButton(
-              tooltip: 'زِد يوم',
+              tooltip: context.tr('duration.increase_day'),
               onPressed: () => onChanged(_clamp(days + 1)),
               icon: const Icon(Icons.add_circle_outline),
             ),
           ],
         ),
         Text(
-          'المدة: ${_clamp(days)} يوم (حد أقصى $maxDays)',
+          context.tr('duration.summary', args: {
+            'days': '${_clamp(days)}',
+            'max': '$maxDays',
+          }),
           style: theme.textTheme.bodySmall,
         ),
       ],

@@ -218,8 +218,38 @@ class AppStrings {
     'settings.title': {'ar': 'الإعدادات', 'fr': 'Paramètres', 'en': 'Settings'},
     'likes.title': {'ar': 'الإعجابات', 'fr': 'Favoris', 'en': 'Likes'},
 
+    // Notifications
+    'notifications.title': {'ar': 'الإشعارات', 'fr': 'Notifications', 'en': 'Notifications'},
+
     // Legal / Support
     'support.title': {'ar': 'الدعم', 'fr': 'Support', 'en': 'Support'},
+    'support.login_required': {
+      'ar': 'يجب تسجيل الدخول للتواصل مع الدعم.',
+      'fr': 'Veuillez vous connecter pour contacter le support.',
+      'en': 'Please sign in to contact support.'
+    },
+    'support.refresh': {'ar': 'تحديث', 'fr': 'Rafraîchir', 'en': 'Refresh'},
+    'support.send': {'ar': 'إرسال', 'fr': 'Envoyer', 'en': 'Send'},
+    'support.hint': {
+      'ar': 'اكتب رسالتك…',
+      'fr': 'Écrivez votre message…',
+      'en': 'Type your message…'
+    },
+    'support.empty': {
+      'ar': 'ابدأ محادثة مع الدعم من هنا.',
+      'fr': 'Commencez une discussion avec le support ici.',
+      'en': 'Start a chat with support here.'
+    },
+    'support.send_failed': {
+      'ar': 'تعذر إرسال الرسالة: {error}',
+      'fr': "Impossible d'envoyer le message : {error}",
+      'en': 'Failed to send the message: {error}'
+    },
+    'support.load_failed': {
+      'ar': 'تعذر تحميل الرسائل: {error}',
+      'fr': 'Impossible de charger les messages : {error}',
+      'en': 'Failed to load messages: {error}'
+    },
     'legal.terms': {'ar': 'الشروط', 'fr': 'Conditions', 'en': 'Terms'},
     'legal.privacy': {
       'ar': 'الخصوصية',
@@ -242,6 +272,15 @@ class AppStrings {
 
     // Time
     'time.ago': {'ar': 'قبل {v}', 'fr': 'il y a {v}', 'en': '{v} ago'},
+
+    // Duration picker
+    'duration.decrease_day': {'ar': 'ناقص يوم', 'fr': 'Moins un jour', 'en': 'Minus a day'},
+    'duration.increase_day': {'ar': 'زِد يوم', 'fr': 'Plus un jour', 'en': 'Plus a day'},
+    'duration.summary': {
+      'ar': 'المدة: {days} يوم (حد أقصى {max})',
+      'fr': 'Durée : {days} jour(s) (max {max})',
+      'en': 'Duration: {days} day(s) (max {max})'
+    },
 
     // Router
     'router.page_not_found': {

@@ -257,7 +257,7 @@ class ReceiptDetailsScreen extends ConsumerWidget {
               ),
               _InfoRow(
                 label: _tr(context,
-                    ar: 'رقم العملية', fr: 'Transaction', en: 'TX id'),
+                    ar: 'رقم الدفع', fr: 'Transaction', en: 'Payment #'),
                 value: receipt.transactionId ?? '-',
               ),
               _InfoRow(

@@ -53,7 +53,11 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
     final items = <AppNotification>[];
 
     for (final d in inboxDocs) {
-      final n = _mapDocToNotification(d.id, d.data());
+      final n = _mapDocToNotification(
+        d.id,
+        d.data(),
+        defaultType: AppNotificationType.sales,
+      );
       if (n != null) items.add(n);
     }
 
@@ -65,7 +69,11 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
       // If topic specified, show only if user is subscribed.
       if (targetTopic.isNotEmpty && !topics.contains(targetTopic)) continue;
 
-      final n = _mapDocToNotification(d.id, data);
+      final n = _mapDocToNotification(
+        d.id,
+        data,
+        defaultType: AppNotificationType.system,
+      );
       if (n != null) items.add(n);
     }
 
@@ -106,15 +114,39 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
     return topics;
   }
 
-  AppNotification? _mapDocToNotification(String id, Map<String, dynamic> d) {
-    final type = _parseType(d['type'] ?? d['kind'] ?? d['category']);
-    final title = _parseLocalized(d['title'] ?? d['titleText'] ?? d['subject'],
-        fallback: 'Notification');
-    final body =
-        _parseLocalized(d['body'] ?? d['message'] ?? d['text'], fallback: '');
-    final route = (d['targetRoute'] ?? d['route'] ?? d['deeplink'] ?? '')
+  AppNotification? _mapDocToNotification(
+    String id,
+    Map<String, dynamic> d, {
+    required AppNotificationType defaultType,
+  }) {
+    final rawType = d['type'] ?? d['kind'] ?? d['category'];
+    final type = _parseType(rawType, defaultType: defaultType);
+
+    final title = _parseLocalized(
+      d['title'] ?? d['titleText'] ?? d['subject'],
+      fallback: 'Notification',
+    );
+    final body = _parseLocalized(
+      d['body'] ?? d['message'] ?? d['text'],
+      fallback: '',
+    );
+
+    var route = (d['targetRoute'] ?? d['route'] ?? d['deeplink'] ?? '')
         .toString()
         .trim();
+
+    // Fallback: if backend sent no route (or mistakenly '/notifications')
+    // for VIP-related seller notifications, open the promo ads screen.
+    if (route.isEmpty || route == '/notifications') {
+      final combined = ('${rawType ?? ''} '
+              '${title.ar} ${title.fr} ${title.en} '
+              '${body.ar} ${body.fr} ${body.en}')
+          .toLowerCase();
+      if (combined.contains('vip')) {
+        route = '/promo-ads?mine=1';
+      }
+    }
+
     final createdAt = _parseDate(d['createdAt'], d['createdAtMs']);
     final isRead = (d['read'] is bool) ? (d['read'] as bool) : false;
 
@@ -129,14 +161,29 @@ class FirestoreNotificationsRepository implements NotificationsRepository {
     );
   }
 
-  AppNotificationType _parseType(dynamic v) {
+  AppNotificationType _parseType(dynamic v,
+      {required AppNotificationType defaultType}) {
     final s = (v ?? '').toString().toLowerCase().trim();
+
+    if (s.isEmpty) return defaultType;
+
     if (s == 'sales' || s == 'listing' || s == 'product_moderation') {
       return AppNotificationType.sales;
     }
     if (s == 'deals' || s == 'promo' || s == 'offers') {
       return AppNotificationType.deals;
     }
+
+    // Seller promos / VIP / paid boosts
+    if (s.contains('vip') ||
+        s.contains('promo') ||
+        s.contains('boost') ||
+        s.contains('featured') ||
+        s.contains('top') ||
+        s.contains('ad')) {
+      return AppNotificationType.sales;
+    }
+
     return AppNotificationType.system;
   }
 

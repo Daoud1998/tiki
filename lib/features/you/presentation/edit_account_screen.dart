@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:tiki/app/localization/l10n.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:tiki/core/data/ma_catalog.dart' show L10n3, maWilayas;
 import 'package:tiki/core/state/auth_state.dart' as auth;
+
+import '../../kyc/data/kyc_settings_repository.dart';
+import '../../kyc/domain/kyc_models.dart';
 
 /// Edit account screen (Firestore-backed profile via AuthController.updateProfile):
 /// - Works for Phone OTP accounts (no in-app password)
@@ -36,6 +40,84 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
 
   static const _nouakchott =
       L10n3(ar: 'نواكشوط', fr: 'Nouakchott', en: 'Nouakchott');
+
+  Future<void> _openHelpChangeNumber(AppStrings s) async {
+    // Prefer the admin-controlled WhatsApp number from `app_settings/kyc`.
+    final uiAsync = ref.read(kycVerificationUiSettingsProvider);
+    final ui = uiAsync.asData?.value ?? KycVerificationUiSettings.defaults();
+
+    // If WhatsApp verification is disabled by Admin, fallback to the support page.
+    if (!ui.allowWhatsApp) {
+      if (mounted) context.go('/you/support');
+      return;
+    }
+
+    final a = ref.read(auth.authControllerProvider);
+
+    final uid = (a.userId ?? '').trim();
+    final name = (a.name ?? _nameCtl.text).trim();
+    final phoneNow = (a.phoneE164 ?? '').trim();
+
+    final message = s.isAr
+        ? 'السلام عليكم، أريد تغيير رقم الهاتف لحسابي في تيكي.\n'
+            'UID: $uid\n'
+            'الاسم: $name\n'
+            'رقمي الحالي: $phoneNow\n'
+            'الرقم الجديد: (اكتب الرقم هنا)\n'
+            'شكراً.'
+        : s.isFr
+            ? 'Bonjour, je souhaite changer le numéro de téléphone de mon compte Tikki.\n'
+                'UID: $uid\n'
+                'Nom: $name\n'
+                'Numéro actuel: $phoneNow\n'
+                'Nouveau numéro: (écrivez le numéro ici)\n'
+                'Merci.'
+            : 'Hi, I want to change the phone number for my Tikki account.\n'
+                'UID: $uid\n'
+                'Name: $name\n'
+                'Current phone: $phoneNow\n'
+                'New phone: (type the number here)\n'
+                'Thanks.';
+
+    final phone = ui.whatsAppNumber.replaceAll(RegExp(r'[^0-9+]'), '');
+    final digits = phone.replaceAll('+', '').trim();
+    if (digits.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isAr
+                ? 'رقم واتساب الدعم غير مضبوط'
+                : s.isFr
+                    ? 'Numéro WhatsApp du support manquant'
+                    : 'Support WhatsApp number is missing'),
+          ),
+        );
+        context.go('/you/support');
+      }
+      return;
+    }
+
+    final uri =
+        Uri.parse('https://wa.me/$digits?text=${Uri.encodeComponent(message)}');
+    final ok = await canLaunchUrl(uri);
+    if (!ok) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isAr
+                ? 'تعذر فتح واتساب'
+                : s.isFr
+                    ? "Impossible d'ouvrir WhatsApp"
+                    : 'Cannot open WhatsApp'),
+          ),
+        );
+        context.go('/you/support');
+      }
+      return;
+    }
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 
   @override
   void dispose() {
@@ -352,7 +434,7 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
           Align(
             alignment: AlignmentDirectional.centerStart,
             child: TextButton.icon(
-              onPressed: () => context.go('/you/support'),
+              onPressed: () => _openHelpChangeNumber(s),
               icon: const Icon(Icons.support_agent_outlined),
               label: Text(
                 s.isAr

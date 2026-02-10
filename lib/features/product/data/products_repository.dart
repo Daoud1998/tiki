@@ -12,8 +12,8 @@ import 'package:flutter/foundation.dart';
 import 'package:tiki/core/search/ma_search_tokens.dart';
 import 'package:tiki/features/product/domain/app_product.dart';
 
-
-final productsRepositoryProvider = Provider<ProductsRepository>((ref) => ProductsRepository());
+final productsRepositoryProvider =
+    Provider<ProductsRepository>((ref) => ProductsRepository());
 
 /// Firestore collection: `products`
 /// Storage paths:
@@ -24,6 +24,7 @@ class ProductsRepository {
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
     FirebaseAuth? auth,
+    this.preferIndexedQueries = false,
   })  : _db = firestore ?? FirebaseFirestore.instance,
         _storage = storage ?? FirebaseStorage.instance,
         _auth = auth ?? FirebaseAuth.instance;
@@ -31,6 +32,11 @@ class ProductsRepository {
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
   final FirebaseAuth _auth;
+
+  /// If true, use Firestore composite-index queries (faster).
+  /// If false (default), prefer index-free queries + client-side sorting/filtering
+  /// to avoid missing-index issues in production.
+  final bool preferIndexedQueries;
 
   CollectionReference<Map<String, dynamic>> get _col =>
       _db.collection('products');
@@ -67,54 +73,112 @@ class ProductsRepository {
     return int.tryParse(v.toString()) ?? 0;
   }
 
+  /// Normalize a phone-like input and return the **last 8 digits** (Mauritania-friendly).
+  ///
+  /// Examples:
+  /// - "36566606" -> "36566606"
+  /// - "+222 36 56 66 06" -> "36566606"
+  /// Returns null if we can't get at least 8 digits.
+  String? phoneTail8(String input) {
+    final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length < 8) return null;
+    return digits.substring(digits.length - 8);
+  }
 
-/// Normalize a phone-like input and return the **last 8 digits** (Mauritania-friendly).
-///
-/// Examples:
-/// - "36566606" -> "36566606"
-/// - "+222 36 56 66 06" -> "36566606"
-/// Returns null if we can't get at least 8 digits.
-String? phoneTail8(String input) {
-  final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
-  if (digits.length < 8) return null;
-  return digits.substring(digits.length - 8);
-}
-
-bool _looksLikePhoneQuery(String input) {
-  // Allow digits plus spaces and common phone punctuation.
-  return RegExp(r'^\s*[0-9\+\-\(\)\s]+\s*$').hasMatch(input);
-}
+  bool _looksLikePhoneQuery(String input) {
+    // Allow digits plus spaces and common phone punctuation.
+    return RegExp(r'^\s*[0-9\+\-\(\)\s]+\s*$').hasMatch(input);
+  }
 
   Stream<List<AppProduct>> _watchWithFallback({
     required Query<Map<String, dynamic>> primary,
     required Query<Map<String, dynamic>> fallback,
     required List<AppProduct> Function(QuerySnapshot<Map<String, dynamic>>)
         mapper,
+
+    /// Keep the stream alive and retry on transient errors (network/startup races).
+    /// This prevents Riverpod StreamProvider from getting stuck in AsyncError until
+    /// the user manually refreshes.
+    bool retryOnErrors = true,
+
+    /// If true, forward errors to the UI (AsyncError).
+    /// Default is false because feeds should self-heal.
+    bool forwardErrors = false,
+    Duration retryBaseDelay = const Duration(milliseconds: 900),
+    Duration retryMaxDelay = const Duration(seconds: 8),
+    int maxRetries = 6,
+
+    /// Rarely needed, but can help when you want cache/server transitions.
+    bool includeMetadataChanges = false,
   }) {
     final controller = StreamController<List<AppProduct>>();
-    StreamSubscription? sub;
+
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    Timer? retryTimer;
+    int retryCount = 0;
+
+    void cancelRetry() {
+      retryTimer?.cancel();
+      retryTimer = null;
+    }
 
     void listen(Query<Map<String, dynamic>> q, {required bool isFallback}) {
+      cancelRetry();
       sub?.cancel();
-      sub = q.snapshots().listen(
-        (snap) => controller.add(mapper(snap)),
+
+      sub = q.snapshots(includeMetadataChanges: includeMetadataChanges).listen(
+        (snap) {
+          // Any successful event resets retries.
+          retryCount = 0;
+          controller.add(mapper(snap));
+        },
         onError: (e, st) {
+          // Missing-index: switch to index-free fallback immediately.
           if (!isFallback && _looksLikeMissingIndex(e)) {
             if (kDebugMode) {
-              debugPrint('[ProductsRepository] Missing index; falling back. $e');
+              debugPrint(
+                  '[ProductsRepository] Missing index; switching to fallback. $e');
             }
             listen(fallback, isFallback: true);
             return;
           }
-          controller.addError(e, st);
+
+          if (kDebugMode) {
+            debugPrint(
+                '[ProductsRepository] stream error (${isFallback ? 'fallback' : 'primary'}): $e');
+          }
+
+          if (!retryOnErrors) {
+            if (forwardErrors) controller.addError(e, st);
+            return;
+          }
+
+          // Retry with exponential backoff.
+          if (retryCount >= maxRetries) {
+            if (forwardErrors) controller.addError(e, st);
+            return;
+          }
+
+          final nextMs = (retryBaseDelay.inMilliseconds * (1 << retryCount))
+              .clamp(
+                  retryBaseDelay.inMilliseconds, retryMaxDelay.inMilliseconds);
+          retryCount += 1;
+
+          cancelRetry();
+          retryTimer = Timer(Duration(milliseconds: nextMs), () {
+            listen(q, isFallback: isFallback);
+          });
         },
       );
     }
 
     listen(primary, isFallback: false);
+
     controller.onCancel = () async {
+      cancelRetry();
       await sub?.cancel();
     };
+
     return controller.stream;
   }
 
@@ -275,7 +339,8 @@ bool _looksLikePhoneQuery(String input) {
       if (!await file.exists()) continue;
 
       final ext = p.contains('.') ? p.split('.').last : 'jpg';
-      final name = 'img_${DateTime.now().millisecondsSinceEpoch}_${rand.nextInt(9999)}.$ext';
+      final name =
+          'img_${DateTime.now().millisecondsSinceEpoch}_${rand.nextInt(9999)}.$ext';
 
       final contentType = _contentTypeFromExt(ext, isVideo: false);
 
@@ -311,7 +376,8 @@ bool _looksLikePhoneQuery(String input) {
     final uid = sellerId ?? _auth.currentUser?.uid ?? 'unknown';
     final rand = Random();
     final ext = p.contains('.') ? p.split('.').last : 'mp4';
-    final name = 'vid_${DateTime.now().millisecondsSinceEpoch}_${rand.nextInt(9999)}.$ext';
+    final name =
+        'vid_${DateTime.now().millisecondsSinceEpoch}_${rand.nextInt(9999)}.$ext';
 
     final contentType = _contentTypeFromExt(ext, isVideo: true);
 
@@ -359,7 +425,8 @@ bool _looksLikePhoneQuery(String input) {
       if (!denied) rethrow;
 
       if (kDebugMode) {
-        debugPrint('[ProductsRepository] Strict upload denied, trying legacy. code=${e.code}');
+        debugPrint(
+            '[ProductsRepository] Strict upload denied, trying legacy. code=${e.code}');
       }
       await legacyRef.putFile(file, meta);
       return await legacyRef.getDownloadURL();
@@ -389,21 +456,67 @@ bool _looksLikePhoneQuery(String input) {
       return pairs.map((e) => e.key).toList(growable: false);
     }
 
-    return _watchWithFallback(primary: primary, fallback: fallback, mapper: mapSnap);
+    final effectivePrimary = preferIndexedQueries ? primary : fallback;
+
+    return _watchWithFallback(
+        primary: effectivePrimary, fallback: fallback, mapper: mapSnap);
   }
 
-  /// Alias used by some screens/older code.
-  Stream<List<AppProduct>> watchSellerProducts(String sellerId) => watchMyProducts(sellerId: sellerId);
+  /// Seller products view.
+  ///
+  /// - If the current user is the seller, show all their products (any status).
+  /// - Otherwise (guest/other user), show only public listings:
+  ///   status==active AND isHidden==false.
+  Stream<List<AppProduct>> watchSellerProducts(String sellerId) {
+    final me = _auth.currentUser?.uid;
+    if (me != null && me == sellerId) {
+      return watchMyProducts(sellerId: sellerId);
+    }
+    return watchPublicSellerProducts(sellerId: sellerId);
+  }
+
+  Stream<List<AppProduct>> watchPublicSellerProducts({
+    required String sellerId,
+    int limit = 200,
+  }) {
+    final primary = _col
+        .where('sellerId', isEqualTo: sellerId)
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .orderBy('publishedAt', descending: true)
+        .limit(limit);
+
+    // Fallback avoids composite index requirements (sorting is done client-side).
+    final fallback = _col
+        .where('sellerId', isEqualTo: sellerId)
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .limit(limit);
+
+    return _watchWithFallback(
+      primary: preferIndexedQueries ? primary : fallback,
+      fallback: fallback,
+      mapper: (s) {
+        final items = s.docs.map(AppProduct.fromDoc).toList();
+        items.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+        return items;
+      },
+    );
+  }
 
   Stream<List<AppProduct>> watchActiveFeed({int limit = 50}) {
     final primary = _col
         .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
         .orderBy('publishedAt', descending: true)
         .limit(limit);
-    final fallback = _col.where('status', isEqualTo: 'active').limit(limit);
+    final fallback = _col
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .limit(limit);
 
     return _watchWithFallback(
-      primary: primary,
+      primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
         final items = s.docs.map(AppProduct.fromDoc).toList();
@@ -413,38 +526,94 @@ bool _looksLikePhoneQuery(String input) {
     );
   }
 
-  Stream<List<AppProduct>> watchSearch(String query, {
-  String? categoryId,
-  int limit = 50,
-}) {
-  final q = query.trim();
-  if (q.isEmpty) return watchActiveFeed(limit: limit);
+  Stream<List<AppProduct>> watchSearch(
+    String query, {
+    String? categoryId,
+    int limit = 50,
+  }) {
+    final q = query.trim();
+    if (q.isEmpty) return watchActiveFeed(limit: limit);
 
-  // Phone mode (last 8 digits). Example: 36566606 or +222 36 56 66 06
-  final tail8 = phoneTail8(q);
-  final isPhoneQuery = tail8 != null && _looksLikePhoneQuery(q);
+    // Phone mode (last 8 digits). Example: 36566606 or +222 36 56 66 06
+    final tail8 = phoneTail8(q);
+    final isPhoneQuery = tail8 != null && _looksLikePhoneQuery(q);
 
-  if (isPhoneQuery) {
-    Query<Map<String, dynamic>> ref =
-        _col.where('status', isEqualTo: 'active');
+    if (isPhoneQuery) {
+      Query<Map<String, dynamic>> ref = _col
+          .where('status', isEqualTo: 'active')
+          .where('isHidden', isEqualTo: false);
+
+      if (categoryId != null && categoryId.trim().isNotEmpty) {
+        // Optional: keep category filter even for phone search.
+        // May require an extra composite index; fallback will still work.
+        ref = ref.where('category', isEqualTo: categoryId.trim());
+      }
+
+      final primary = ref
+          .where('phoneTail8', isEqualTo: tail8)
+          .orderBy('publishedAt', descending: true)
+          .limit(limit);
+
+      // Fallback: scan a slice of active listings and filter locally by phone tail.
+      final fallback = _col
+          .where('status', isEqualTo: 'active')
+          .where('isHidden', isEqualTo: false)
+          .limit(limit * 5);
+
+      return _watchWithFallback(
+        primary: preferIndexedQueries ? primary : fallback,
+        fallback: fallback,
+        mapper: (s) {
+          var items = s.docs.map(AppProduct.fromDoc).toList();
+
+          if (categoryId != null && categoryId.trim().isNotEmpty) {
+            final c = categoryId.trim();
+            items = items
+                .where((p) => (p.category ?? '').trim() == c)
+                .toList(growable: false);
+          }
+
+          items = items
+              .where((p) => phoneTail8(p.phone ?? '') == tail8)
+              .toList(growable: false);
+
+          items = items.toList()
+            ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+          return _applyVipSorting(items);
+        },
+      );
+    }
+
+    // Normal text mode: query tokens (AR/FR/EN + joins like iphone 13 -> iphone13).
+    // Firestore arrayContainsAny supports up to 10 values.
+    final tokens = maQueryTokens(q, maxTokens: 10);
+
+    Query<Map<String, dynamic>> ref = _col
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false);
 
     if (categoryId != null && categoryId.trim().isNotEmpty) {
-      // Optional: keep category filter even for phone search.
-      // May require an extra composite index; fallback will still work.
+      // Stored field name is `category` in this project.
       ref = ref.where('category', isEqualTo: categoryId.trim());
     }
 
-    final primary = ref
-        .where('phoneTail8', isEqualTo: tail8)
-        .orderBy('publishedAt', descending: true)
-        .limit(limit);
+    // Primary: server-side token search (may require composite indexes).
+    final primary = (tokens.isNotEmpty)
+        ? ref
+            .where('searchTokens', arrayContainsAny: tokens)
+            .orderBy('publishedAt', descending: true)
+            .limit(limit)
+        : ref.orderBy('publishedAt', descending: true).limit(limit);
 
-    // Fallback: scan a slice of active listings and filter locally by phone tail.
-    final fallback =
-        _col.where('status', isEqualTo: 'active').limit(limit * 5);
+    // Fallback: fetch a slice of active feed and filter locally.
+    // (This avoids missing-index errors, at the cost of precision/perf.)
+    final fallback = _col
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .limit(limit * 3);
 
     return _watchWithFallback(
-      primary: primary,
+      primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
         var items = s.docs.map(AppProduct.fromDoc).toList();
@@ -456,9 +625,12 @@ bool _looksLikePhoneQuery(String input) {
               .toList(growable: false);
         }
 
-        items = items
-            .where((p) => phoneTail8(p.phone ?? '') == tail8)
-            .toList(growable: false);
+        if (tokens.isNotEmpty) {
+          final tset = tokens.toSet();
+          items = items
+              .where((p) => p.searchTokens.any(tset.contains))
+              .toList(growable: false);
+        }
 
         items = items.toList()
           ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
@@ -466,57 +638,6 @@ bool _looksLikePhoneQuery(String input) {
       },
     );
   }
-
-  // Normal text mode: query tokens (AR/FR/EN + joins like iphone 13 -> iphone13).
-  // Firestore arrayContainsAny supports up to 10 values.
-  final tokens = maQueryTokens(q, maxTokens: 10);
-
-  Query<Map<String, dynamic>> ref =
-      _col.where('status', isEqualTo: 'active');
-
-  if (categoryId != null && categoryId.trim().isNotEmpty) {
-    // Stored field name is `category` in this project.
-    ref = ref.where('category', isEqualTo: categoryId.trim());
-  }
-
-  // Primary: server-side token search (may require composite indexes).
-  final primary = (tokens.isNotEmpty)
-      ? ref
-          .where('searchTokens', arrayContainsAny: tokens)
-          .orderBy('publishedAt', descending: true)
-          .limit(limit)
-      : ref.orderBy('publishedAt', descending: true).limit(limit);
-
-  // Fallback: fetch a slice of active feed and filter locally.
-  // (This avoids missing-index errors, at the cost of precision/perf.)
-  final fallback = _col.where('status', isEqualTo: 'active').limit(limit * 3);
-
-  return _watchWithFallback(
-    primary: primary,
-    fallback: fallback,
-    mapper: (s) {
-      var items = s.docs.map(AppProduct.fromDoc).toList();
-
-      if (categoryId != null && categoryId.trim().isNotEmpty) {
-        final c = categoryId.trim();
-        items = items
-            .where((p) => (p.category ?? '').trim() == c)
-            .toList(growable: false);
-      }
-
-      if (tokens.isNotEmpty) {
-        final tset = tokens.toSet();
-        items = items
-            .where((p) => p.searchTokens.any(tset.contains))
-            .toList(growable: false);
-      }
-
-      items = items.toList()
-        ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-      return _applyVipSorting(items);
-    },
-  );
-}
 
 // ---------- Search tokens ----------
 

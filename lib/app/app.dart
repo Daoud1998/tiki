@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/notifications/presentation/notifications_controller.dart';
+import '../features/notifications/presentation/inbox_watcher.dart';
 import '../features/receipts/presentation/receipts_controller.dart';
 import '../features/receipts/services/renewal_reminders.dart';
 import 'localization/l10n.dart';
@@ -52,6 +53,8 @@ class _TikiAppState extends ConsumerState<TikiApp> {
   Widget build(BuildContext context) {
     // Start Firestore → SQLite sync for fast local search.
     ref.watch(localProductsSyncProvider);
+    // Start realtime in-app notifications (user_inbox watcher).
+    ref.watch(inboxWatcherProvider);
     final themeMode = ref.watch(themeModeProvider);
     final localeOverride = ref.watch(localeOverrideProvider);
     final router = ref.watch(appRouterProvider);

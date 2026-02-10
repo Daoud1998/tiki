@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../app/localization/l10n.dart';
 import '../../../core/data/support_repository.dart';
 
 class SupportChatScreen extends StatefulWidget {
@@ -39,7 +40,9 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إرسال الرسالة: $e')),
+        SnackBar(
+            content: Text(context
+                .tr('support.send_failed', args: {'error': e.toString()}))),
       );
     }
   }
@@ -64,17 +67,17 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
     if (user == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('الدعم')),
-        body: const Center(child: Text('يجب تسجيل الدخول للتواصل مع الدعم.')),
+        appBar: AppBar(title: Text(context.tr('support.title'))),
+        body: Center(child: Text(context.tr('support.login_required'))),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('الدعم'),
+        title: Text(context.tr('support.title')),
         actions: [
           IconButton(
-            tooltip: 'تحديث',
+            tooltip: context.tr('support.refresh'),
             onPressed: () async {
               try {
                 await _repo.ensureMyTicket();
@@ -97,7 +100,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text('تعذر تحميل الرسائل: ${snapshot.error}'),
+                      child: Text(context.tr('support.load_failed',
+                          args: {'error': snapshot.error.toString()})),
                     ),
                   );
                 }
@@ -108,10 +112,10 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                 }
 
                 if (msgs.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Padding(
                       padding: EdgeInsets.all(16),
-                      child: Text('ابدأ محادثة مع الدعم من هنا.'),
+                      child: Text(context.tr('support.empty')),
                     ),
                   );
                 }
@@ -216,7 +220,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                       maxLines: 4,
                       textDirection: td,
                       decoration: InputDecoration(
-                        hintText: 'اكتب رسالتك…',
+                        hintText: context.tr('support.hint'),
                         filled: true,
                         fillColor:
                             cs.surfaceContainerHighest.withValues(alpha: 0.60),
@@ -245,7 +249,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                   IconButton.filled(
                     onPressed: _send,
                     icon: const Icon(Icons.send),
-                    tooltip: 'إرسال',
+                    tooltip: context.tr('support.send'),
                   ),
                 ],
               ),

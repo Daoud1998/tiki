@@ -6,6 +6,24 @@ import '../domain/app_notification.dart';
 import '../shared/notifications_i18n.dart';
 import 'notifications_controller.dart';
 
+Future<void> _showNotificationDetails(BuildContext context, AppNotification n) {
+  final title = n.title.pick(context);
+  final body = n.body.pick(context);
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: Text(body.isEmpty ? tr(ctx, ar: '—', fr: '—', en: '—') : body),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(tr(ctx, ar: 'إغلاق', fr: 'Fermer', en: 'Close')),
+        ),
+      ],
+    ),
+  );
+}
+
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
 
@@ -36,20 +54,24 @@ class NotificationsScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
               child: _EnableCard(
-                onEnable: () {
-                  controller.enableInAppNotifications();
+                onEnable: () async {
+                  await controller.enableInAppNotifications();
+                  if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(tr(
                         context,
-                        ar: 'تم تفعيل إشعارات داخل التطبيق. إشعارات الهاتف (Push) نضيفها لاحقًا.',
-                        fr: "Notifications dans l’app activées. Les push viendront plus tard.",
-                        en: 'In-app notifications enabled. Push notifications will be added later.',
+                        ar:
+                            'تم تفعيل إشعارات داخل التطبيق. إشعارات الهاتف (Push) نضيفها لاحقًا.',
+                        fr:
+                            "Notifications dans l’app activées. Les push viendront plus tard.",
+                        en:
+                            'In-app notifications enabled. Push notifications will be added later.',
                       )),
                     ),
                   );
                 },
-                onDismiss: controller.dismissEnableCard,
+                onDismiss: () => controller.dismissEnableCard(),
               ),
             ),
 
@@ -106,8 +128,10 @@ class NotificationsScreen extends ConsumerWidget {
                     subtitle: tr(
                       context,
                       ar: 'سيظهر هنا كل جديد: تخفيضات، تنبيهات، حالة إعلاناتك…',
-                      fr: 'Vous verrez ici les nouveautés: promos, alertes, statut de vos annonces…',
-                      en: 'You’ll see updates here: deals, alerts, your listings status…',
+                      fr:
+                          'Vous verrez ici les nouveautés: promos, alertes, statut de vos annonces…',
+                      en:
+                          'You’ll see updates here: deals, alerts, your listings status…',
                     ),
                   )
                 : ListView.separated(
@@ -124,30 +148,38 @@ class NotificationsScreen extends ConsumerWidget {
                         secondaryBackground: _DismissBg(isRtl: isRtl),
                         child: _NotificationTile(
                           notification: n,
-                          onTap: () {
-                            controller.markRead(n.id);
+                          onTap: () async {
+                            await controller.markRead(n.id);
 
-                            if (n.targetRoute != null) {
-                              final r = n.targetRoute!;
-                              try {
-                                final go = GoRouter.maybeOf(context);
-                                if (go != null) {
-                                  context.push(r);
-                                } else {
-                                  Navigator.of(context).pushNamed(r);
-                                }
-                              } catch (_) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(tr(
-                                      context,
-                                      ar: 'الوجهة غير مهيأة بعد. اربط routes أو غيّر targetRoute.',
-                                      fr: "Destination non configurée. Reliez les routes.",
-                                      en: 'Destination not configured. Hook up your routes.',
-                                    )),
-                                  ),
-                                );
+                            final r = (n.targetRoute ?? '').trim();
+                            if (r.isEmpty) {
+                              await _showNotificationDetails(context, n);
+                              return;
+                            }
+
+                            try {
+                              final go = GoRouter.maybeOf(context);
+                              if (go != null) {
+                                // Avoid Navigator key collisions by NOT pushing.
+                                context.go(r);
+                              } else {
+                                Navigator.of(context).pushNamed(r);
                               }
+                            } catch (_) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(tr(
+                                    context,
+                                    ar:
+                                        'الوجهة غير مهيأة بعد. اربط routes أو غيّر targetRoute.',
+                                    fr:
+                                        "Destination non configurée. Reliez les routes.",
+                                    en:
+                                        'Destination not configured. Hook up your routes.',
+                                  )),
+                                ),
+                              );
                             }
                           },
                         ),
@@ -174,7 +206,8 @@ class _EnableCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(
+            color: Theme.of(context).dividerColor.withOpacity(0.35)),
       ),
       child: Row(
         children: [
@@ -257,6 +290,8 @@ class _NotificationTile extends StatelessWidget {
       AppNotificationType.system => Icons.info_outline,
     };
 
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+
     return Material(
       color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(18),
@@ -267,7 +302,8 @@ class _NotificationTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black12),
+            border: Border.all(
+                color: Theme.of(context).dividerColor.withOpacity(0.35)),
           ),
           child: Row(
             children: [
@@ -275,8 +311,7 @@ class _NotificationTile extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color:
-                      Theme.of(context).colorScheme.primary.withOpacity(0.10),
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon),
@@ -309,7 +344,8 @@ class _NotificationTile extends StatelessWidget {
                               width: 8,
                               height: 8,
                               decoration: const BoxDecoration(
-                                  color: Colors.red, shape: BoxShape.circle)),
+                                  color: Colors.red,
+                                  shape: BoxShape.circle)),
                         ],
                       ],
                     ),
@@ -321,7 +357,7 @@ class _NotificationTile extends StatelessWidget {
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
-                          ?.copyWith(color: Colors.black54),
+                          ?.copyWith(color: onSurface.withOpacity(0.82)),
                     ),
                     const SizedBox(height: 6),
                     _TimeText(date: notification.createdAt),
@@ -329,7 +365,7 @@ class _NotificationTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(arrow, color: Colors.black38),
+              Icon(arrow, color: onSurface.withOpacity(0.55)),
             ],
           ),
         ),
@@ -364,11 +400,13 @@ class _TimeText extends StatelessWidget {
           en: '${diff.inDays}d ago');
     }
 
-    return Text(text,
-        style: Theme.of(context)
-            .textTheme
-            .labelSmall
-            ?.copyWith(color: Colors.black45));
+    return Text(
+      text,
+      style: Theme.of(context)
+          .textTheme
+          .labelSmall
+          ?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60)),
+    );
   }
 }
 
@@ -379,6 +417,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -389,12 +428,14 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 12),
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
-            Text(subtitle,
-                textAlign: TextAlign.center,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.black54)),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: onSurface.withOpacity(0.70)),
+            ),
           ],
         ),
       ),

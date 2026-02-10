@@ -27,6 +27,7 @@ class PromoKeys {
   static const String promoPkgId = 'promo_pkg_id';
   static const String promoTier = 'promo_tier';
   static const String promoTxId = 'promo_tx_id';
+  static const String promoWalletId = 'promo_wallet_id';
   static const String promoReqAtMs = 'promo_req_at_ms';
   static const String promoApprAtMs = 'promo_appr_at_ms';
   static const String promoUntilMs = 'promo_until_ms';
@@ -82,7 +83,7 @@ class PromoModeration {
   static const List<PromoPackage> packages = <PromoPackage>[
 PromoPackage(
   id: 'boost_1d',
-  labelAr: 'Boost',
+  labelAr: 'تعزيز',
   labelFr: 'Boost',
   labelEn: 'Boost',
   days: 1,
@@ -90,7 +91,7 @@ PromoPackage(
 ),
 PromoPackage(
   id: 'boost_3d',
-  labelAr: 'Boost',
+  labelAr: 'تعزيز',
   labelFr: 'Boost',
   labelEn: 'Boost',
   days: 3,
@@ -98,7 +99,7 @@ PromoPackage(
 ),
 PromoPackage(
   id: 'boost_7d',
-  labelAr: 'Boost',
+  labelAr: 'تعزيز',
   labelFr: 'Boost',
   labelEn: 'Boost',
   days: 7,
@@ -106,7 +107,7 @@ PromoPackage(
 ),
 PromoPackage(
   id: 'boost_15d',
-  labelAr: 'Boost',
+  labelAr: 'تعزيز',
   labelFr: 'Boost',
   labelEn: 'Boost',
   days: 15,
@@ -114,7 +115,7 @@ PromoPackage(
 ),
 PromoPackage(
   id: 'boost_30d',
-  labelAr: 'Boost',
+  labelAr: 'تعزيز',
   labelFr: 'Boost',
   labelEn: 'Boost',
   days: 30,
@@ -203,7 +204,7 @@ PromoPackage(
 // Legacy aliases kept for backwards compatibility with older docs/clients.
 PromoPackage(
   id: 'boost_7',
-  labelAr: 'Boost',
+  labelAr: 'تعزيز',
   labelFr: 'Boost',
   labelEn: 'Boost',
   days: 7,
@@ -317,7 +318,7 @@ PromoPackage(
     if (t == 'featured')
       return _tr(context, ar: 'مميّز', fr: 'Vedette', en: 'Featured');
     if (t == 'boost')
-      return _tr(context, ar: 'Boost', fr: 'Boost', en: 'Boost');
+      return _tr(context, ar: 'تعزيز', fr: 'Boost', en: 'Boost');
     return _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP');
   }
 

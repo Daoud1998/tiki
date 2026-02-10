@@ -138,7 +138,11 @@ class KycVerificationUiSettings {
     required this.allowWhatsApp,
     required this.whatsAppNumber,
     required this.whatsAppTemplateAr,
+    required this.whatsAppTemplateFr,
+    required this.whatsAppTemplateEn,
     required this.benefitsAr,
+    required this.benefitsFr,
+    required this.benefitsEn,
     required this.fastTrackCategories,
   });
 
@@ -151,16 +155,20 @@ class KycVerificationUiSettings {
   /// Support WhatsApp number in E.164 format, e.g. +222XXXXXXXX
   final String whatsAppNumber;
 
-  /// Arabic WhatsApp message template.
+  /// WhatsApp message templates.
   ///
   /// Supported placeholders:
   /// - {{uid}}
   /// - {{name}}
   /// - {{phone}}
   final String whatsAppTemplateAr;
+  final String whatsAppTemplateFr;
+  final String whatsAppTemplateEn;
 
-  /// List of Arabic benefit lines (one line per bullet).
+  /// Benefit lines (one line per bullet).
   final List<String> benefitsAr;
+  final List<String> benefitsFr;
+  final List<String> benefitsEn;
 
   /// Category ids that get faster moderation when verified (UI hint only).
   final List<String> fastTrackCategories;
@@ -172,10 +180,24 @@ class KycVerificationUiSettings {
         whatsAppNumber: '+22236566606',
         whatsAppTemplateAr:
             'السلام عليكم، أريد توثيق حسابي في تيكي.\nUID: {{uid}}\nالاسم: {{name}}\nالهاتف: {{phone}}\nسأرسل: (وثيقة + سيلفي)',
+        whatsAppTemplateFr:
+            'Bonjour, je souhaite vérifier mon compte sur Tikki.\nUID: {{uid}}\nNom: {{name}}\nTéléphone: {{phone}}\nJe vais envoyer: (Document + selfie)',
+        whatsAppTemplateEn:
+            'Hello, I want to verify my account on Tikki.\nUID: {{uid}}\nName: {{name}}\nPhone: {{phone}}\nI will send: (Document + selfie)',
         benefitsAr: <String>[
           '✅ معاينة أسرع (غالباً أقل من دقيقة)',
           '✅ نشر غير محدود (حسب سياسة الإدارة)',
           '✅ نشر أسرع لفئات: العقارات، السيارات، الهواتف',
+        ],
+        benefitsFr: <String>[
+          '✅ Examen plus rapide (souvent moins d’une minute)',
+          '✅ Publication plus flexible (selon la politique admin)',
+          '✅ Publication plus rapide: immobilier, voitures, téléphones',
+        ],
+        benefitsEn: <String>[
+          '✅ Faster review (often under a minute)',
+          '✅ More flexible posting (per admin policy)',
+          '✅ Faster posting: real estate, cars, phones',
         ],
         fastTrackCategories: <String>['real_estate', 'cars', 'phones'],
       );
@@ -207,16 +229,39 @@ class KycVerificationUiSettings {
     return const <String>[];
   }
 
+  String whatsAppTemplateFor(String languageCode) {
+    final c = languageCode.trim().toLowerCase();
+    if (c == 'fr') return whatsAppTemplateFr.isNotEmpty ? whatsAppTemplateFr : whatsAppTemplateAr;
+    if (c == 'en') return whatsAppTemplateEn.isNotEmpty ? whatsAppTemplateEn : whatsAppTemplateAr;
+    return whatsAppTemplateAr;
+  }
+
+  List<String> benefitsFor(String languageCode) {
+    final c = languageCode.trim().toLowerCase();
+    if (c == 'fr') return benefitsFr.isNotEmpty ? benefitsFr : benefitsAr;
+    if (c == 'en') return benefitsEn.isNotEmpty ? benefitsEn : benefitsAr;
+    return benefitsAr;
+  }
+
   static KycVerificationUiSettings fromMap(Map<String, dynamic> m) {
     final d = defaults();
-    final benefits = _asStrList(m['benefitsAr']);
+
+    final benefitsAr = _asStrList(m['benefitsAr']);
+    final benefitsFr = _asStrList(m['benefitsFr']);
+    final benefitsEn = _asStrList(m['benefitsEn']);
+
     final cats = _asStrList(m['fastTrackCategories']);
+
     return KycVerificationUiSettings(
       allowInApp: _asBool(m['allowInApp'], d.allowInApp),
       allowWhatsApp: _asBool(m['allowWhatsApp'], d.allowWhatsApp),
       whatsAppNumber: _asStr(m['whatsAppNumber'], d.whatsAppNumber),
       whatsAppTemplateAr: _asStr(m['whatsAppTemplateAr'], d.whatsAppTemplateAr),
-      benefitsAr: benefits.isEmpty ? d.benefitsAr : benefits,
+      whatsAppTemplateFr: _asStr(m['whatsAppTemplateFr'], d.whatsAppTemplateFr),
+      whatsAppTemplateEn: _asStr(m['whatsAppTemplateEn'], d.whatsAppTemplateEn),
+      benefitsAr: benefitsAr.isEmpty ? d.benefitsAr : benefitsAr,
+      benefitsFr: benefitsFr.isEmpty ? d.benefitsFr : benefitsFr,
+      benefitsEn: benefitsEn.isEmpty ? d.benefitsEn : benefitsEn,
       fastTrackCategories: cats.isEmpty ? d.fastTrackCategories : cats,
     );
   }

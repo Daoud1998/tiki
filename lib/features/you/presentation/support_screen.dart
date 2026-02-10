@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../core/constants/support_contacts.dart';
 import '../../../core/widgets/dir_chevrons.dart';
 
 /// مركز المساعدة (ستايل قريب من Temu)
@@ -21,9 +23,9 @@ class SupportScreen extends StatefulWidget {
 
 class _SupportScreenState extends State<SupportScreen> {
   // TODO: عدّلها لبيانات الدعم الحقيقية
-  static const String _supportWhatsApp = '+22200000000';
-  static const String _supportPhone = '+22200000000';
-  static const String _supportEmail = 'support@tiki.app';
+  static const String _supportWhatsApp = kSupportWhatsApp;
+  static const String _supportPhone = kSupportPhone;
+  static const String _supportEmail = kSupportEmail;
 
   // Temu-like article palette
   static const Color _temuGreen = Color(0xFF1E8E3E);
@@ -101,6 +103,20 @@ class _SupportScreenState extends State<SupportScreen> {
                   fr: 'Contact: WhatsApp, appel, email',
                   en: 'Contact: WhatsApp, call, email'),
               onTap: _openContactSheet,
+            ),
+            const SizedBox(height: 10),
+            _actionTile(
+              cs,
+              icon: Icons.forum_outlined,
+              title: _tr(context,
+                  ar: 'محادثة داخل التطبيق',
+                  fr: 'Chat in-app',
+                  en: 'In-app chat'),
+              subtitle: _tr(context,
+                  ar: 'راسل فريق الدعم داخل التطبيق.',
+                  fr: 'Discutez avec le support dans l’application.',
+                  en: 'Chat with support in the app.'),
+              onTap: _openInAppChat,
             ),
           ],
         ),
@@ -408,6 +424,18 @@ class _SupportScreenState extends State<SupportScreen> {
                       spacing: 10,
                       runSpacing: 10,
                       children: [
+                        _pillButton(
+                          ctx,
+                          icon: Icons.forum_outlined,
+                          label: _tr(context,
+                              ar: 'محادثة داخل التطبيق',
+                              fr: 'Chat in-app',
+                              en: 'In-app chat'),
+                          onTap: () {
+                            Navigator.of(ctx).pop();
+                            _openInAppChat();
+                          },
+                        ),
                         _pillButton(
                           ctx,
                           icon: Icons.chat_bubble_outline_rounded,
@@ -744,6 +772,22 @@ class _SupportScreenState extends State<SupportScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _contactQuickButton(
+                      label: _tr(context,
+                          ar: 'محادثة داخل التطبيق',
+                          fr: 'Chat in-app',
+                          en: 'In-app chat'),
+                      icon: Icons.support_agent_outlined,
+                      bg: _temuGreen,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _openInAppChat();
+                      },
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -785,6 +829,27 @@ class _SupportScreenState extends State<SupportScreen> {
         );
       },
     );
+  }
+
+  Future<void> _openInAppChat() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_tr(context,
+              ar: 'يجب تسجيل الدخول للتواصل مع الدعم.',
+              fr: 'Vous devez vous connecter pour contacter le support.',
+              en: 'You need to sign in to chat with support.')),
+        ),
+      );
+      // Go to Account tab to sign in
+      if (context.mounted) context.go('/account');
+      return;
+    }
+
+    // Open in-app support chat
+    if (context.mounted) context.push('/support-chat');
   }
 
   Future<void> _openWhatsApp() async {

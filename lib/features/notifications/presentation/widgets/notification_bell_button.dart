@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/localization/l10n.dart';
+
 import '../notifications_controller.dart';
 
 class NotificationBellButton extends ConsumerWidget {
@@ -13,12 +15,16 @@ class NotificationBellButton extends ConsumerWidget {
     final unread = state.unreadCount;
 
     return IconButton(
-      tooltip: 'Notifications',
+      tooltip: context.tr('notifications.title'),
       onPressed: () {
-        // IMPORTANT: This app uses go_router (Navigator 2.0).
-        // Using Navigator.push here can crash with:
-        // "!keyReservation.contains(key)".
-        context.push('/notifications');
+        // Using push can crash with "!keyReservation.contains(key)" when the
+        // same page gets pushed multiple times. Use go() instead.
+        final go = GoRouter.maybeOf(context);
+        if (go != null) {
+          context.go('/notifications');
+        } else {
+          Navigator.of(context).pushNamed('/notifications');
+        }
       },
       icon: Stack(
         clipBehavior: Clip.none,

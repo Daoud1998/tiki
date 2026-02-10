@@ -54,13 +54,22 @@ class PromoRepository {
 
   /// Watches active promo tiers.
   ///
-  /// Query pattern (recommended): where(active==true).orderBy(rank).
+  /// NOTE:
+  /// We intentionally avoid `.orderBy('rank')` here because the combination
+  /// `where(active==true) + orderBy(rank)` requires a composite index in
+  /// Cloud Firestore. Instead, we fetch active tiers without ordering and
+  /// sort them client-side by `rank` (then by `id`) so it works without any
+  /// index creation.
   Stream<List<PromoTier>> watchActiveTiers() {
-    return _plans
-        .where('active', isEqualTo: true)
-        .orderBy('rank')
-        .snapshots()
-        .map((qs) => qs.docs.map(_fromDoc).toList(growable: false));
+    return _plans.where('active', isEqualTo: true).snapshots().map((qs) {
+      final list = qs.docs.map(_fromDoc).toList(growable: false);
+      final sorted = [...list]..sort((a, b) {
+          final c = a.rank.compareTo(b.rank);
+          if (c != 0) return c;
+          return a.id.compareTo(b.id);
+        });
+      return sorted;
+    });
   }
 
   /// Get all tiers (active + inactive).

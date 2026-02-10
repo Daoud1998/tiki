@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CLIENT_ID</key>
+	<string>36657885045-pta89vqfdam5vjjvlbc02u7886kk6tg1.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.36657885045-pta89vqfdam5vjjvlbc02u7886kk6tg1</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>36657885045-sf4ml8ohov8n8d0s8ie9von0rnpqgo66.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
 	<string>AIzaSyA6Kyv-eYH7Hlum9K1XiijTg_dDrP6kZ4Q</string>
 	<key>GCM_SENDER_ID</key>
@@ -9,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.tiki.mr</string>
+	<string>com.example.tiki</string>
 	<key>PROJECT_ID</key>
 	<string>tiki-a9d30</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:36657885045:ios:29c0bbd964befef5dbed3c</string>
+	<string>1:36657885045:ios:17d013513d84bec9dbed3c</string>
 </dict>
 </plist>

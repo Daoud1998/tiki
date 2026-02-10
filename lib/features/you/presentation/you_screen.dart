@@ -171,18 +171,7 @@ class _YouScreenState extends ConsumerState<YouScreen> {
                       onTap: () => context.push('/you/listings'),
                     ),
                     const SizedBox(height: 8),
-                    _Tile(
-                      icon: Icons.receipt_long_rounded,
-                      title: _tr(context,
-                          ar: 'الفواتير', fr: 'Reçus', en: 'Receipts'),
-                      subtitle: _tr(context,
-                          ar: 'طباعة / مشاركة / متابعة',
-                          fr: 'Imprimer / Partager / Suivre',
-                          en: 'Print / Share / Track'),
-                      onTap: () => context.push('/you/receipts'),
-                    ),
-                    const SizedBox(height: 8),
-                    _Tile(
+_Tile(
                       icon: Icons.chat_bubble_rounded,
                       title: _tr(context,
                           ar: 'الدعم داخل التطبيق',
@@ -551,6 +540,9 @@ class _AccountCard extends ConsumerWidget {
                   return;
                 }
                 await ref.read(auth.authControllerProvider.notifier).signOut();
+                // Refresh product feed & notifications immediately after logout.
+                ref.invalidate(notificationsUnreadCountProvider);
+                ref.invalidate(productsFeedProvider);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -560,6 +552,8 @@ class _AccountCard extends ConsumerWidget {
                           en: 'Signed out')),
                     ),
                   );
+                  final t = DateTime.now().millisecondsSinceEpoch.toString();
+                  context.go('/home?r=logout_$t');
                 }
               },
               child: Text(isSignedIn

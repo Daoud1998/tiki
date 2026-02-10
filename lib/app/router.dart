@@ -38,23 +38,41 @@ import '../features/content/presentation/policies_hub_screen.dart';
 import '../features/content/presentation/policy_article_screen.dart';
 
 import '../features/kyc/presentation/verification_screen.dart';
-import '../features/kyc/presentation/kyc_info_screen.dart';
 import '../features/kyc/presentation/kyc_submit_screen.dart';
 
 import 'package:tiki/features/auth/presentation/phone_login_screen.dart'
     show PhoneLoginScreen;
 
-final appRouterProvider = Provider<GoRouter>((ref) {
-  // Keep auth state in sync with redirects.
-  final authState = ref.watch(auth.authControllerProvider);
+/// Navigator keys
+///
+/// ✅ Fixes crashes when navigating from root pages (like /notifications)
+/// into "detail" pages (like /product/:id) while using a ShellRoute.
+///
+/// Important go_router rule:
+/// - Routes INSIDE a ShellRoute must NOT use a different parentNavigatorKey.
+/// - If you want a route to be shown on the ROOT navigator, define it as a
+///   TOP-LEVEL route (outside ShellRoute) and set parentNavigatorKey to root.
+final _rootNavKey = GlobalKey<NavigatorState>(debugLabel: 'rootNav');
+final _shellNavKey = GlobalKey<NavigatorState>(debugLabel: 'shellNav');
 
+final appRouterProvider = Provider<GoRouter>((ref) {
+  final _refresh = ValueNotifier<int>(0);
+  ref.onDispose(_refresh.dispose);
+
+  ref.listen<auth.AuthState>(
+    auth.authControllerProvider,
+    (_, __) => _refresh.value++,
+  );
   return GoRouter(
-    initialLocation: '/splash',
+    navigatorKey: _rootNavKey,
+    refreshListenable: _refresh,
+    initialLocation: '/home?r=boot',
     errorBuilder: (context, state) => _RouteErrorScreen(
       uri: state.uri.toString(),
       message: state.error?.toString(),
     ),
     redirect: (context, state) {
+      final authState = ref.read(auth.authControllerProvider);
       final loc = state.uri.toString();
       final isAuth = state.matchedLocation == '/auth';
 
@@ -71,16 +89,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (isAuth && authState.isSignedIn) {
         final next = state.uri.queryParameters['next'];
         if (next != null && next.isNotEmpty) return Uri.decodeComponent(next);
-        return '/you';
+        return '/home?r=login';
       }
 
       return null;
     },
     routes: [
-      GoRoute(
-        path: '/',
-        redirect: (_, __) => '/home',
-      ),
+      GoRoute(path: '/', redirect: (_, __) => '/home'),
+
       GoRoute(
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
@@ -89,6 +105,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/auth',
         builder: (context, state) => const PhoneLoginScreen(),
       ),
+
       GoRoute(
         path: '/legal/:doc',
         builder: (context, state) {
@@ -114,6 +131,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
 
+      // Root-level pages (outside ShellRoute)
       GoRoute(
         path: '/account/edit',
         builder: (context, state) => const EditAccountScreen(),
@@ -122,7 +140,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/notifications',
         builder: (context, state) => const NotificationsScreen(),
       ),
-
       GoRoute(
         path: '/promo-ads',
         builder: (context, state) {
@@ -130,14 +147,32 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return PromoAdsScreen(mineOnly: mine);
         },
       ),
-
-      // Full-screen in-app support chat (outside ShellRoute so bottom nav doesn't overlap composer).
       GoRoute(
         path: '/support-chat',
         builder: (context, state) => const SupportChatScreen(),
       ),
 
+      // ✅ Detail pages on ROOT navigator (safe to open from notifications)
+      GoRoute(
+        path: '/product/:id',        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return ProductDetailsScreen(productId: id);
+        },
+      ),
+      GoRoute(
+        path: '/seller/:id',        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          final qp = state.uri.queryParameters;
+          return SellerProductsScreen(
+            sellerId: id,
+            sellerName: qp['name'],
+          );
+        },
+      ),
+
+      // Bottom navigation Shell (tabs)
       ShellRoute(
+        navigatorKey: _shellNavKey,
         builder: (context, state, child) => _MainScaffold(child: child),
         routes: [
           GoRoute(
@@ -171,8 +206,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/publish',
-            builder: (context, state) =>
-                PublishDraftsScreen(extra: state.extra),
+            builder: (context, state) => PublishDraftsScreen(extra: state.extra),
             routes: [
               GoRoute(
                 path: 'wizard/:draftId',
@@ -194,10 +228,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'submit',
                 builder: (context, state) => const KycSubmitScreen(),
-              ),
-              GoRoute(
-                path: 'info',
-                builder: (context, state) => const KycInfoScreen(),
               ),
             ],
           ),
@@ -233,24 +263,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const MostViewedScreen(),
           ),
           GoRoute(
-            path: '/seller/:id',
-            builder: (context, state) {
-              final id = state.pathParameters['id']!;
-              final qp = state.uri.queryParameters;
-              return SellerProductsScreen(
-                sellerId: id,
-                sellerName: qp['name'],
-              );
-            },
-          ),
-          GoRoute(
-            path: '/product/:id',
-            builder: (context, state) {
-              final id = state.pathParameters['id']!;
-              return ProductDetailsScreen(productId: id);
-            },
-          ),
-          GoRoute(
             path: '/settings',
             builder: (context, state) => const SettingsScreen(),
           ),
@@ -275,10 +287,7 @@ class _MainScaffoldState extends State<_MainScaffold> {
     if (location.startsWith('/most-viewed')) return 0;
     if (location.startsWith('/categories')) return 1;
     if (location.startsWith('/publish')) return 2;
-    if (location.startsWith('/you') || location.startsWith('/settings')) {
-      return 3;
-    }
-    if (location.startsWith('/product')) return 0;
+    if (location.startsWith('/you') || location.startsWith('/settings')) return 3;
     if (location.startsWith('/search')) return 0;
     return 0;
   }
@@ -286,7 +295,6 @@ class _MainScaffoldState extends State<_MainScaffold> {
   void _onTap(BuildContext context, int index) {
     switch (index) {
       case 0:
-        // Temu-like: always refresh when pressing Home.
         final t = DateTime.now().millisecondsSinceEpoch.toString();
         context.go('/home?r=$t');
         break;
@@ -314,7 +322,6 @@ class _MainScaffoldState extends State<_MainScaffold> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: current,
         onDestinationSelected: (i) => _onTap(context, i),
-        // Temu-like: no background indicator, colors handled by theme.
         indicatorColor: Colors.transparent,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: [
@@ -324,7 +331,6 @@ class _MainScaffoldState extends State<_MainScaffold> {
             label: s.navHome,
           ),
           NavigationDestination(
-            // Temu-like "Categories" glyph: list + search.
             icon: const Icon(Icons.manage_search),
             selectedIcon: const Icon(Icons.manage_search),
             label: s.navCategories,
@@ -350,10 +356,7 @@ class _MainScaffoldState extends State<_MainScaffold> {
                         top: -2,
                         right: -2,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.error,
                             borderRadius: BorderRadius.circular(999),
@@ -364,10 +367,7 @@ class _MainScaffoldState extends State<_MainScaffold> {
                           ),
                           child: Text(
                             unread > 99 ? '99+' : '$unread',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   color: Theme.of(context).colorScheme.onError,
                                   fontWeight: FontWeight.w800,
                                   height: 1,
@@ -394,10 +394,7 @@ class _MainScaffoldState extends State<_MainScaffold> {
                         top: -2,
                         right: -2,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.error,
                             borderRadius: BorderRadius.circular(999),
@@ -408,10 +405,7 @@ class _MainScaffoldState extends State<_MainScaffold> {
                           ),
                           child: Text(
                             unread > 99 ? '99+' : '$unread',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                   color: Theme.of(context).colorScheme.onError,
                                   fontWeight: FontWeight.w800,
                                   height: 1,
@@ -450,8 +444,7 @@ class _RouteErrorScreen extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 AppStrings.of(context).pageNotFound,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),

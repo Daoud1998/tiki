@@ -6,18 +6,27 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Allowlist admins: وثيقة باسم UID داخل /admins
+    // نسمح للمستخدم يقرأ وثيقته فقط (لتجنب أي حلقات مع exists/get)
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false; // أضف الأدمن من Firebase Console فقط
+    }
+
     function isAdmin() {
       return signedIn()
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    function isOwner() {
-      return signedIn()
-        && resource.data.sellerId == request.auth.uid;
+    // KYC: يعتمد على kyc_requests/{uid}.status == "approved"
+    function isKycApproved(uid) {
+      return exists(/databases/$(database)/documents/kyc_requests/$(uid))
+        && get(/databases/$(database)/documents/kyc_requests/$(uid)).data.status == "approved";
     }
 
-    function mapOrEmpty(v) {
-      return v is map ? v : {};
+
+    function isOwnerId(ownerId) {
+      return signedIn() && ownerId == request.auth.uid;
     }
 
     // Users (profile)
@@ -25,67 +34,350 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
-    // Admin allowlist collection
-    match /admins/{uid} {
-      // القراءة للأدمن فقط
-      allow read: if isAdmin();
-
-      // الكتابة من التطبيق ممنوعة (أنت تضيف الأدمن من الـ Console)
-      allow write: if false;
+    match /users/{uid}/blocks/{blockId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
     }
-
-    // Products
+    // -------------------------
+    // Products (الموثقين يظهرون مباشرة + غير الموثقين يحتاجون موافقة)
+    // -------------------------
     match /products/{productId} {
-      allow read: if true;
 
-      // إنشاء إعلان: لازم sellerId = UID
+      // القراءة:
+      // - الأدمن: يرى كل شيء
+      // - صاحب المنتج: يرى منتجه دائمًا
+      // - العامة: ترى فقط المنتجات النشطة وغير المخفية
+      allow read: if
+        isAdmin()
+        || isOwnerId(resource.data.sellerId)
+        || (resource.data.isHidden != true && resource.data.status == "active");
+
+      // -------------------------
+      // VIP / Promo حماية: منع المستخدم من تزوير حقول VIP (promo_*)
+      // يسمح فقط بطلب VIP (pending / needs_price / none), أما القبول/الرفض والمدة/الرتبة للأدمن فقط.
+      // -------------------------
+      function safeAttrsFrom(d) {
+        return (d.attrs is map) ? d.attrs : {};
+      }
+
+      // Parse milliseconds stored as int or numeric string.
+      function _ms(v) {
+        return v is int ? v : (v is string && v.matches('^[0-9]+$') ? int(v) : 0);
+      }
+
+      function _promoUntilMs(a) {
+        let a1 = _ms(a.promo_until_ms);
+        let a2 = _ms(a.promoUntilMs);
+        return a1 > a2 ? a1 : a2;
+      }
+
+      function promoCreateSafe() {
+        let a = safeAttrsFrom(request.resource.data);
+        return a.promo_rank == null
+          && a.promo_until_ms == null
+          && a.promo_appr_at_ms == null
+          && a.promo_reject_reason == null
+          && a.promoRank == null
+          && a.promoUntilMs == null
+          && a.promoApprAtMs == null
+          && a.promoRejectReason == null
+          && a.promo_status != "approved"
+          && a.promo_status != "rejected"
+          && a.promoStatus != "approved"
+          && a.promoStatus != "rejected";
+      }
+
+      function ownerPromoUpdateSafe() {
+        let oldA = safeAttrsFrom(resource.data);
+        let newA = safeAttrsFrom(request.resource.data);
+        let changed = newA.diff(oldA).affectedKeys();
+
+        // Owner cannot write admin-only fields.
+        let disallowAdminFields = changed.hasAny([
+          "promo_rank",
+          "promo_until_ms",
+          "promo_appr_at_ms",
+          "promo_reject_reason",
+          "promoRank",
+          "promoUntilMs",
+          "promoApprAtMs",
+          "promoRejectReason"
+        ]);
+
+        // Allowed request-side statuses for owner.
+        let allowedStatus = ["pending", "none", "", "needs_price"];
+
+        let wantsSnake = changed.hasAny(["promo_status"]);
+        let wantsCamel = changed.hasAny(["promoStatus"]);
+
+        let snakeOk = !wantsSnake || (newA.promo_status in allowedStatus);
+        let camelOk = !wantsCamel || (newA.promoStatus in allowedStatus);
+
+        // Owner can never set approved/rejected.
+        let neverApprove =
+          (!wantsSnake || (newA.promo_status != "approved" && newA.promo_status != "rejected"))
+          && (!wantsCamel || (newA.promoStatus != "approved" && newA.promoStatus != "rejected"));
+
+        let promoStatusOk = snakeOk && camelOk && neverApprove;
+
+        // If VIP is currently approved and not expired, lock promo fields entirely.
+        let wasApproved = (oldA.promo_status == "approved" || oldA.promoStatus == "approved");
+        let untilMs = _promoUntilMs(oldA);
+        let stillActive = wasApproved && (untilMs > request.time.toMillis());
+
+        let promoRequestKeys = [
+          "promo_status",
+          "promo_req_at_ms",
+          "promo_pkg_id",
+          "promo_days",
+          "promo_price_mru",
+          "promo_tx_id",
+          "promo_tier",
+          "promoStatus",
+          "promoReqAtMs",
+          "promoPkgId",
+          "promoDays",
+          "promoPriceMru",
+          "promoTxId",
+          "promoTier"
+        ];
+
+        let lockWhileActive = !stillActive || !changed.hasAny(promoRequestKeys);
+
+        return !disallowAdminFields && promoStatusOk && lockWhileActive;
+      }
+
+      // -------------------------
+      // View counter (public, safe increment)
+      // -------------------------
+      function _intOrZero(v) {
+        return v == null ? 0 : v;
+      }
+
+      // Allow anyone (even guests) to increment viewCount by exactly +1,
+      // and optionally write viewCountUpdatedAt. No other fields may change.
+      function viewCountOnlyUpdate() {
+        return request.resource.data
+            .diff(resource.data)
+            .changedKeys()
+            .hasOnly(["viewCount", "viewCountUpdatedAt"])
+          && request.resource.data.viewCount == (_intOrZero(resource.data.viewCount) + 1);
+      }
+
+      // إنشاء:
+      // - الموثق (KYC approved): يمكنه نشر active مباشرة
+      // - غير الموثق: ينشئ pending (مراجعة)
+      // ملاحظة: لا نُجبر وجود reviewStatus هنا لأن بعض الإنشاءات تتم عبر Cloud Functions.
       allow create: if signedIn()
-        && request.resource.data.sellerId == request.auth.uid;
+        && request.resource.data.sellerId == request.auth.uid
+        && request.resource.data.isHidden != true
+        && (
+          (isKycApproved(request.auth.uid) && request.resource.data.status == "active")
+          || (!isKycApproved(request.auth.uid) && request.resource.data.status == "pending")
+        )
+        && promoCreateSafe();
+
+      // حذف:
+      // - الأدمن فقط
+      allow delete: if isAdmin();
 
       // تعديل:
       // - الأدمن يقدر يعدّل كل شيء
-      // - المالك يقدر يعدّل، لكن لا يقدر يلمس حقول VIP الحساسة داخل attrs
-      allow update: if isAdmin() || (isOwner() && canOwnerUpdateVipSafely());
+      // - المالك يقدر يعدّل لكن لا يغير sellerId / reviewStatus / isHidden
+      //   ويسمح فقط بانتقالات status الآمنة.
+      allow update: if isAdmin()
+        || viewCountOnlyUpdate()
+        || (
+          isOwnerId(resource.data.sellerId)
+          && request.resource.data.sellerId == resource.data.sellerId
+          && request.resource.data.reviewStatus == resource.data.reviewStatus
+          && request.resource.data.isHidden == resource.data.isHidden
+          && statusTransitionOk(resource.data.status, request.resource.data.status)
+          && ownerPromoUpdateSafe()
+        );
 
-      allow delete: if isAdmin() || isOwner();
-
-      function canOwnerUpdateVipSafely() {
-        let oldA = mapOrEmpty(resource.data.attrs);
-        let newA = mapOrEmpty(request.resource.data.attrs);
-
-        // امنع البائع من تغيير حقول الموافقة/التفعيل الفعلية
-        return (newA.vipRank == oldA.vipRank)
-          && (newA.vipUntilMs == oldA.vipUntilMs)
-          && (newA.vipApprovedAt == oldA.vipApprovedAt)
-          && (newA.vipApprovedBy == oldA.vipApprovedBy)
-          && (newA.vipStatus == oldA.vipStatus);
+      function statusTransitionOk(oldS, newS) {
+        return (oldS == newS)
+          // من pending إلى active فقط إذا المستخدم موثق
+          || (oldS == "pending" && newS == "active" && isKycApproved(request.auth.uid))
+          // يسمح للمالك بإدارة حالة الإعلان (بيع/إيقاف/حذف) + إرجاعه للبيع.
+          // active -> sold/paused/deleted
+          || (oldS == "active" && (newS == "sold" || newS == "paused" || newS == "deleted"))
+          // paused -> active/sold/deleted
+          || (oldS == "paused" && (newS == "active" || newS == "sold" || newS == "deleted"))
+          // sold -> active/paused/deleted (إرجاع للبيع)
+          || (oldS == "sold" && (newS == "active" || newS == "paused" || newS == "deleted"))
+          // deleted -> active/paused (استرجاع بعد الحذف)
+          || (oldS == "deleted" && (newS == "active" || newS == "paused"));
       }
     }
 
-    // Promo ads shown in Home ticker and Ads screen.
-    // Collection: promo_ads
-    match /promo_ads/{adId} {
-      // Public reads (Home ticker) + users browsing ads.
-      allow read: if true;
 
-      // Create: must be signed in and ownerUserId must be the current user.
-      allow create: if signedIn()
-        && request.resource.data.ownerUserId == request.auth.uid;
-
-      // Update/Delete:
-      // - Admin can do everything.
-      // - Owner can update/delete their own ad.
-      // NOTE: If you want to prevent owners from self-approving VIP,
-      // add field-level restrictions here (promoStatus/isVip/promoApprAtMs...).
-      allow update: if isAdmin() || (signedIn() && resource.data.ownerUserId == request.auth.uid);
-      allow delete: if isAdmin() || (signedIn() && resource.data.ownerUserId == request.auth.uid);
+    // Per-product daily view markers (used by incrementUniqueViewPerDay).
+    // We allow creating and reading a specific marker doc; we do NOT allow listing.
+    match /products/{productId}/views_daily/{markerId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if true;
+      allow update, delete: if false;
     }
 
-    // Home offers / announcements shown in the Home split banner.
-    // Collection: home_offers
+    // Home offers
     match /home_offers/{docId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
+    }
+
+    // Promo Ads (العروض)
+    match /promo_ads/{adId} {
+      // العامة ترى الموافق عليه فقط، المالك يرى عرضه، الأدمن يرى الجميع
+      allow read: if (resource.data.promoStatus == "approved")
+        || isOwnerId(resource.data.ownerUserId)
+        || isAdmin();
+
+      allow create: if signedIn()
+        && isOwnerId(request.resource.data.ownerUserId);
+
+      // Owner can update their ad, but cannot change pricing/approval fields.
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && isOwnerId(resource.data.ownerUserId)
+          && request.resource.data.promoStatus == resource.data.promoStatus
+          && request.resource.data.promoUntilMs == resource.data.promoUntilMs
+          && request.resource.data.promoPriceOverrideMru == resource.data.promoPriceOverrideMru
+          && request.resource.data.planId == resource.data.planId
+        );
+
+      allow delete: if isAdmin() || isOwnerId(resource.data.ownerUserId);
+    }
+
+    // VIP / Promo plans (أسعار باقات VIP للمنتجات)
+    match /promo_plans/{tierId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Promo Ad plans (أسعار باقات Promo ads)
+    match /promo_ads_plans/{planId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // KYC requests
+    match /kyc_requests/{uid} {
+      allow create: if signedIn() && request.auth.uid == uid;
+
+      allow read: if isAdmin()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /kyc_waitlist/{uid} {
+      allow create, update, delete: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin();
+    }
+
+    // App settings
+    match /app_settings/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Support tickets + messages
+    match /supportTickets/{ticketId} {
+      // ticketId = uid
+      allow read: if isAdmin()
+        || (signedIn() && ticketId == request.auth.uid);
+
+      allow create, update: if (signedIn()
+          && ticketId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid)
+        || isAdmin();
+
+      allow delete: if isAdmin();
+
+      match /messages/{msgId} {
+        allow read: if isAdmin()
+          || (signedIn() && ticketId == request.auth.uid);
+
+        // المستخدم يكتب رسائله فقط، والأدمن يكتب رسائل admin فقط
+        allow create: if (signedIn()
+            && ticketId == request.auth.uid
+            && request.resource.data.senderId == request.auth.uid
+            && request.resource.data.fromAdmin == false)
+          || (isAdmin() && request.resource.data.fromAdmin == true);
+
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Save FCM tokens per user
+    match /user_devices/{uid}/tokens/{token} {
+      allow read, create, update, delete: if signedIn() && request.auth.uid == uid;
+    }
+
+
+    // Inbox (admin writes, user reads own)
+    match /user_inbox/{uid}/items/{itemId} {
+      allow read: if signedIn() && request.auth.uid == uid;
+
+      // Admin (or tools using client SDK) can write items.
+      allow create: if isAdmin();
+
+      // User can only mark items as read/unread + timestamps (no content changes).
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "read",
+            "readAt",
+            "readAtMs",
+            "openedAt",
+            "openedAtMs",
+            "updatedAt",
+            "updatedAtMs"
+          ])
+        );
+
+      // Optional: user can delete own inbox items.
+      allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
+    }
+    // Reports
+    match /reports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid;
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.reporterId == request.auth.uid);
+
+      allow update, delete: if isAdmin();
+    }
+
+    // Broadcast notifications (written by Cloud Functions / Admin SDK)
+    match /broadcast_notifications/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Admin log (written by Cloud Functions / Admin SDK)
+    match /notifications_log/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Legacy VIP requests (اختياري/قديم)
+    match /vip_requests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == "pending"
+        && request.resource.data.type == "productVip";
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid);
+
+      allow update, delete: if isAdmin();
     }
   }
 }

@@ -1,10 +1,11 @@
+/* eslint-disable */
 const admin = require('firebase-admin');
 const functions = require('firebase-functions'); // 1st gen Firestore triggers (no Eventarc)
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
 
 admin.initializeApp();
 const db = admin.firestore();
 const { Timestamp, FieldValue } = admin.firestore;
+const HttpsError = functions.https.HttpsError;
 
 const REGION = 'europe-west1';
 
@@ -63,21 +64,65 @@ function pickType(v) {
   return 'system';
 }
 
+
+function sanitizePromoAttrs(attrs, nowMs) {
+  if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) return attrs;
+  const a = { ...attrs };
+
+  // Admin-only promo/VIP fields: users must NOT set these
+  const adminOnly = [
+    'promo_rank',
+    'promo_until_ms',
+    'promo_appr_at_ms',
+    'promo_reject_reason',
+    // camelCase variants (just in case)
+    'promoRank',
+    'promoUntilMs',
+    'promoApprAtMs',
+    'promoRejectReason',
+  ];
+
+  for (const k of adminOnly) {
+    if (Object.prototype.hasOwnProperty.call(a, k)) delete a[k];
+  }
+
+  // Prevent forged statuses
+  const rawStatus = (a.promo_status ?? a.promoStatus ?? '').toString().trim().toLowerCase();
+  if (rawStatus === 'approved' || rawStatus === 'rejected') {
+    // Downgrade to a normal request (admin will decide)
+    a.promo_status = 'pending';
+    if (Object.prototype.hasOwnProperty.call(a, 'promoStatus')) delete a.promoStatus;
+  }
+
+  // If requesting VIP, ensure request timestamp exists
+  const st = (a.promo_status ?? '').toString();
+  if (st === 'pending' && Number.isFinite(Number(nowMs))) {
+    if (!a.promo_req_at_ms && !a.promoReqAtMs) {
+      a.promo_req_at_ms = Number(nowMs);
+    }
+  }
+
+  return a;
+}
+
+
 /**
  * Create product (Europe region)
  * Enforces verified/unverified limits and optional pending review for fast-track categories.
  */
-exports.createProduct = onCall({ region: REGION }, async (request) => {
-  if (!request.auth || !request.auth.uid) {
+exports.createProduct = functions
+  .region(REGION)
+  .https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
     throw new HttpsError('unauthenticated', 'AUTH_REQUIRED');
   }
 
-  const uid = request.auth.uid;
-  const { productId, payload } = unwrapIncoming(request.data || {});
-  const data = payload && typeof payload === 'object' ? payload : {};
+  const uid = context.auth.uid;
+  const { productId, payload } = unwrapIncoming(data || {});
+  const payloadData = payload && typeof payload === 'object' ? payload : {};
 
   // Basic safety: sellerId must match caller.
-  if (data.sellerId && data.sellerId !== uid) {
+  if (payloadData.sellerId && payloadData.sellerId !== uid) {
     throw new HttpsError('failed-precondition', 'SELLER_MISMATCH');
   }
 
@@ -128,7 +173,7 @@ exports.createProduct = onCall({ region: REGION }, async (request) => {
         throw new HttpsError('resource-exhausted', 'DAILY_LIMIT_REACHED', {
           reason: 'daily',
           dailyLimit: unverifiedDailyLimit,
-        });
+  });
       }
       if (unverifiedMaxActive > 0 && activeCount >= unverifiedMaxActive) {
         throw new HttpsError('resource-exhausted', 'ACTIVE_LIMIT_REACHED', {
@@ -144,8 +189,8 @@ exports.createProduct = onCall({ region: REGION }, async (request) => {
     }
 
     const categoryId =
-      (typeof data.categoryId === 'string' && data.categoryId.trim()) ||
-      (typeof data.category === 'string' && data.category.trim()) ||
+      (typeof payloadData.categoryId === 'string' && payloadData.categoryId.trim()) ||
+      (typeof payloadData.category === 'string' && payloadData.category.trim()) ||
       '';
 
     const needsReview = !isVerified && categoryId && fastCats.includes(categoryId);
@@ -153,17 +198,32 @@ exports.createProduct = onCall({ region: REGION }, async (request) => {
 
     const requestedId =
       (productId && productId.trim()) ||
-      (typeof data.id === 'string' && data.id.trim()) ||
+      (typeof payloadData.id === 'string' && payloadData.id.trim()) ||
       '';
 
     const docRef = requestedId ? productsCol.doc(requestedId) : productsCol.doc();
 
     // Build final product doc
-    const out = { ...data };
+    const out = { ...payloadData };
+
+    // Block users from forging VIP/promo admin fields inside attrs
+    if (out.attrs && typeof out.attrs === 'object' && !Array.isArray(out.attrs)) {
+      out.attrs = sanitizePromoAttrs(out.attrs, nowMs);
+    }
+
 
     out.id = docRef.id;
     out.sellerId = uid;
     out.status = status;
+
+    // Feed-required fields
+    out.isHidden = payloadData.isHidden === true;
+    out.reviewStatus = needsReview ? 'pending' : 'approved';
+
+    // Avoid wrapper payloads (some clients may send nested {data:{...}})
+    if (out.data && typeof out.data === 'object' && !Array.isArray(out.data)) {
+      delete out.data;
+    }
 
     // Timestamps expected by the app queries
     out.createdAt = nowTs;
@@ -201,6 +261,80 @@ exports.createProduct = onCall({ region: REGION }, async (request) => {
 });
 
 /**
+ * Normalize newly created product docs so the home feed query works reliably.
+ * Fixes common issues:
+ * - missing isHidden
+ * - status 'approved' -> 'active'
+ * - wrapper bug (fields nested under data{})
+ */
+exports.onProductCreatedNormalize = functions
+  .region(REGION)
+  .firestore
+  .document('products/{productId}')
+  .onCreate(async (snap, context) => {
+    const d = snap.data() || {};
+    const update = {};
+
+    // Required by indexes/queries used in the home feed
+    if (typeof d.isHidden !== 'boolean') update.isHidden = false;
+
+    const rawStatus = (d.status || '').toString();
+    const effectiveStatus = rawStatus === 'approved' ? 'active' : rawStatus;
+    if (rawStatus === 'approved') update.status = 'active';
+
+    // If product fields were mistakenly written under data:{...}, copy the important ones.
+    const inner = d.data;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+      const keysToCopy = [
+        'title',
+        'description',
+        'body',
+        'price',
+        'currency',
+        'category',
+        'categoryId',
+        'images',
+        'imageUrls',
+        'photos',
+        'city',
+        'country',
+        'location',
+        'lat',
+        'lng',
+        'geo',
+        'condition',
+        'brand',
+        'model',
+        'searchTokens',
+        'searchTokensNormalized',
+      ];
+
+      for (const k of keysToCopy) {
+        if (d[k] === undefined && inner[k] !== undefined) update[k] = inner[k];
+      }
+
+      if (d.sellerId === undefined && inner.sellerId !== undefined) update.sellerId = inner.sellerId;
+      if (d.id === undefined && inner.id !== undefined) update.id = inner.id;
+    }
+
+    // Ensure publishedAt exists for active products (some queries order by it).
+    if (effectiveStatus === 'active') {
+      if (!d.publishedAt) update.publishedAt = FieldValue.serverTimestamp();
+      if (typeof d.publishedAtMs !== 'number') update.publishedAtMs = Date.now();
+    }
+
+    if (!Object.keys(update).length) return null;
+
+    try {
+      await snap.ref.set(update, { merge: true });
+    } catch (e) {
+      console.error('[onProductCreatedNormalize] failed:', context.params.productId, e);
+    }
+
+    return null;
+  });
+
+/**
  * Notify user when Admin moderates a product (pending -> active/rejected).
  * 1st gen trigger avoids Eventarc permission issues.
  */
@@ -214,19 +348,40 @@ exports.onProductModerated = functions
 
     const oldS = (before.status || '').toString();
     const newS = (after.status || '').toString();
+    const effectiveS = newS === 'approved' ? 'active' : newS;
+
 
     if (oldS === newS) return null;
     if (oldS !== 'pending') return null;
-    if (newS !== 'active' && newS !== 'rejected') return null;
+    if (effectiveS !== 'active' && effectiveS !== 'rejected') return null;
+
+    // If admin UI uses status=approved instead of active, normalize so the home feed query works.
+    if (newS === 'approved' && oldS === 'pending') {
+      const patch = {
+        status: 'active',
+        isHidden: false,
+        approvedAt: FieldValue.serverTimestamp(),
+        approvedAtMs: Date.now(),
+      };
+
+      if (!after.publishedAt) patch.publishedAt = FieldValue.serverTimestamp();
+      if (typeof after.publishedAtMs !== 'number') patch.publishedAtMs = Date.now();
+
+      try {
+        await change.after.ref.set(patch, { merge: true });
+      } catch (e) {
+        console.error('[onProductModerated] normalize approved->active failed:', e);
+      }
+    }
 
     const uid = (after.sellerId || after.ownerUserId || '').toString();
     if (!uid) return null;
 
     const productId = context.params.productId;
 
-    const notifTitle = newS === 'active' ? 'تمت الموافقة على إعلانك' : 'تم رفض إعلانك';
+    const notifTitle = effectiveS === 'active' ? 'تمت الموافقة على إعلانك' : 'تم رفض إعلانك';
     const reason = (after.rejectReason || '').toString();
-    const notifBody = newS === 'active'
+    const notifBody = effectiveS === 'active'
       ? 'إعلانك أصبح ظاهرًا الآن للناس.'
       : (reason ? `تم رفض إعلانك. السبب: ${reason}` : 'تم رفض إعلانك.');
 
@@ -238,7 +393,7 @@ exports.onProductModerated = functions
         scope: 'product_moderation',
         type: 'sales',
         productId,
-        status: newS,
+        status: effectiveS,
         title: notifTitle,
         body: notifBody,
         deepLink: `/product/${productId}`,
@@ -261,7 +416,7 @@ exports.onProductModerated = functions
       data: {
         type: 'product_moderation',
         productId: String(productId),
-        status: String(newS),
+        status: String(effectiveS),
         inboxId: inboxRef.id,
       },
     });
@@ -296,14 +451,16 @@ exports.onProductModerated = functions
  * - Broadcast: broadcast_notifications/{id}
  * - Log: notifications_log/{id} (admin only)
  */
-exports.sendAdminNotification = onCall({ region: REGION }, async (request) => {
-  if (!request.auth || !request.auth.uid) {
+exports.sendAdminNotification = functions
+  .region(REGION)
+  .https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
     throw new HttpsError('unauthenticated', 'AUTH_REQUIRED');
   }
-  const adminUid = request.auth.uid;
+  const adminUid = context.auth.uid;
   await assertAdmin(adminUid);
 
-  const d = request.data || {};
+  const d = data || {};
   const mode = asString(d.mode); // 'all' | 'topic' | 'user'
   const notifType = pickType(d.notifType);
 
@@ -444,3 +601,64 @@ exports.sendAdminNotification = onCall({ region: REGION }, async (request) => {
     messageId: msg,
   };
 });
+
+
+/**
+ * Firebase Phone Number Verification (FPNV / PNV) -> Firebase Auth sign-in
+ * Callable: signInWithFpnv({ token })
+ *
+ * Requirements (functions/):
+ *   npm i jose
+ */
+const { jwtVerify, createRemoteJWKSet } = require('jose');
+
+const FPNV_PROJECT_NUMBER = '36657885045';
+const FPNV_PROJECT_ID = 'tiki-a9d30';
+const FPNV_ISSUER = `https://fpnv.googleapis.com/projects/${FPNV_PROJECT_NUMBER}`;
+const FPNV_AUDIENCES = [
+  `https://fpnv.googleapis.com/projects/${FPNV_PROJECT_NUMBER}`,
+  `https://fpnv.googleapis.com/projects/${FPNV_PROJECT_ID}`,
+];
+const FPNV_JWKS = createRemoteJWKSet(new URL('https://fpnv.googleapis.com/v1beta/jwks'));
+
+exports.signInWithFpnv = functions
+  .region(REGION)
+  .https.onCall(async (data, context) => {
+    const token = (data && data.token ? String(data.token) : '').trim();
+    if (!token) throw new HttpsError('invalid-argument', 'MISSING_TOKEN');
+
+    let payload;
+    try {
+      const verified = await jwtVerify(token, FPNV_JWKS, {
+        issuer: FPNV_ISSUER,
+        audience: FPNV_AUDIENCES,
+      });
+      payload = verified.payload || {};
+    } catch (e) {
+      console.error('[signInWithFpnv] token verify failed:', e);
+      throw new HttpsError('permission-denied', 'INVALID_PNV_TOKEN');
+    }
+
+    const phoneNumber = (payload.sub ? String(payload.sub) : '').trim();
+    if (!phoneNumber || !phoneNumber.startsWith('+')) {
+      throw new HttpsError('permission-denied', 'INVALID_PHONE_IN_TOKEN');
+    }
+
+    // Get-or-create user by phoneNumber, then mint a Firebase custom token
+    let userRecord;
+    try {
+      userRecord = await admin.auth().getUserByPhoneNumber(phoneNumber);
+    } catch (e) {
+      const code = (e && e.code) ? String(e.code) : '';
+      if (code.includes('auth/user-not-found')) {
+        userRecord = await admin.auth().createUser({ phoneNumber });
+      } else {
+        console.error('[signInWithFpnv] getUserByPhoneNumber failed:', e);
+        throw new HttpsError('internal', 'AUTH_LOOKUP_FAILED');
+      }
+    }
+
+    const customToken = await admin.auth().createCustomToken(userRecord.uid);
+    return { ok: true, uid: userRecord.uid, phoneNumber, customToken };
+  });
+

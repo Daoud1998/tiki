@@ -19,6 +19,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        
     }
 
     kotlinOptions {
@@ -52,7 +53,10 @@ flutter {
 dependencies {
 
   implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
+  implementation("com.google.firebase:firebase-pnv:16.0.0-beta01")
+
 
   implementation("com.google.firebase:firebase-analytics")
+  implementation("com.google.firebase:firebase-auth")
 
 }

@@ -257,7 +257,7 @@ class ReceiptPdfService {
                         '${r.amountMru} MRU',
                       ),
                       cardRow(
-                        tr(ar: 'رقم العملية', fr: 'Transaction', en: 'TX id'),
+                        tr(ar: 'رقم الدفع', fr: 'Transaction', en: 'Payment #'),
                         (r.transactionId ?? '-'),
                       ),
                       cardRow(

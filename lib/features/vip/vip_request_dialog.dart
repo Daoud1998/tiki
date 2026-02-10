@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/i18n/tikki_tr.dart';
+
 import 'vip_request_service.dart';
 
 /// Dialog to request VIP for a product.
@@ -15,7 +17,7 @@ Future<void> showProductVipRequestDialog({
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('طلب ترويج VIP'),
+      title: Text(tikkiTr(ctx, ar: 'طلب ترويج VIP', fr: 'Demande VIP', en: 'VIP request')),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -30,30 +32,30 @@ Future<void> showProductVipRequestDialog({
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: plan,
-            decoration: const InputDecoration(
-              labelText: 'الخطة',
+            decoration: InputDecoration(
+              labelText: tikkiTr(ctx, ar: 'الخطة', fr: 'Forfait', en: 'Plan'),
               border: OutlineInputBorder(),
               isDense: true,
             ),
-            items: const [
-              DropdownMenuItem(value: 'vip_7d', child: Text('VIP لمدة 7 أيام')),
+            items: [
+              DropdownMenuItem(value: 'vip_7d', child: Text(tikkiTr(ctx, ar: 'VIP لمدة 7 أيام', fr: 'VIP 7 jours', en: 'VIP 7 days'))),
               DropdownMenuItem(
-                  value: 'vip_30d', child: Text('VIP لمدة 30 يوم')),
+                  value: 'vip_30d', child: Text(tikkiTr(ctx, ar: 'VIP لمدة 30 يوم', fr: 'VIP 30 jours', en: 'VIP 30 days'))),
             ],
             onChanged: (v) => plan = v ?? 'vip_7d',
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
             value: rank,
-            decoration: const InputDecoration(
-              labelText: 'المرتبة (Rank)',
+            decoration: InputDecoration(
+              labelText: tikkiTr(ctx, ar: 'المرتبة (Rank)', fr: 'Rang (Rank)', en: 'Rank'),
               border: OutlineInputBorder(),
               isDense: true,
             ),
-            items: const [
-              DropdownMenuItem(value: 1, child: Text('Rank 1 (عادي)')),
-              DropdownMenuItem(value: 2, child: Text('Rank 2 (أقوى)')),
-              DropdownMenuItem(value: 3, child: Text('Rank 3 (الأعلى)')),
+            items: [
+              DropdownMenuItem(value: 1, child: Text(tikkiTr(ctx, ar: 'Rank 1 (عادي)', fr: 'Rank 1 (normal)', en: 'Rank 1 (normal)'))),
+              DropdownMenuItem(value: 2, child: Text(tikkiTr(ctx, ar: 'Rank 2 (أقوى)', fr: 'Rank 2 (fort)', en: 'Rank 2 (strong)'))),
+              DropdownMenuItem(value: 3, child: Text(tikkiTr(ctx, ar: 'Rank 3 (الأعلى)', fr: 'Rank 3 (max)', en: 'Rank 3 (top)'))),
             ],
             onChanged: (v) => rank = v ?? 1,
           ),
@@ -61,8 +63,8 @@ Future<void> showProductVipRequestDialog({
           TextField(
             controller: noteCtl,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'ملاحظة (اختياري)',
+            decoration: InputDecoration(
+              labelText: tikkiTr(ctx, ar: 'ملاحظة (اختياري)', fr: 'Note (optionnel)', en: 'Note (optional)'),
               border: OutlineInputBorder(),
             ),
           ),
@@ -71,11 +73,11 @@ Future<void> showProductVipRequestDialog({
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('إلغاء'),
+          child: Text(tikkiTr(ctx, ar: 'إلغاء', fr: 'Annuler', en: 'Cancel')),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('إرسال الطلب'),
+          child: Text(tikkiTr(ctx, ar: 'إرسال الطلب', fr: 'Envoyer', en: 'Send request')),
         ),
       ],
     ),
@@ -95,13 +97,13 @@ Future<void> showProductVipRequestDialog({
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال طلب VIP وسيتم مراجعته قريبًا')),
+        SnackBar(content: Text(tikkiTr(context, ar: 'تم إرسال طلب VIP وسيتم مراجعته قريبًا', fr: 'Votre demande VIP a été envoyée.', en: 'VIP request sent.'))),
       );
     }
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إرسال الطلب: $e')),
+        SnackBar(content: Text(tikkiTr(context, ar: 'تعذر إرسال الطلب: $e', fr: 'Envoi échoué: $e', en: 'Request failed: $e'))),
       );
     }
   }

@@ -26,6 +26,15 @@ class PolicyArticleScreen extends StatelessWidget {
       }
     }
 
+    final intro = article.sections.isNotEmpty &&
+            article.sections.first.heading(context) == null
+        ? article.sections.first
+        : null;
+
+    final sections = intro == null
+        ? article.sections
+        : article.sections.skip(1).toList(growable: false);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -35,6 +44,7 @@ class PolicyArticleScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(article.title(context)),
+          surfaceTintColor: Colors.transparent,
           leading: IconButton(
             icon: const BackButtonIcon(),
             onPressed: goBack,
@@ -55,30 +65,40 @@ class PolicyArticleScreen extends StatelessWidget {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: cs.surface,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: cs.outlineVariant.withAlpha(150)),
-              ),
-              child: Text(
-                tikkiTr(
-                  context,
-                  ar: 'هذا النص قابل للتعديل. لاحقاً يمكنك استبداله بمحتوى HTML أو Firebase أو إضافة صور/فيديو.',
-                  fr: 'Texte modifiable. Plus tard, remplacez-le par HTML/Firebase ou ajoutez des images/vidéos.',
-                  en: 'Editable text. Later you can replace it with HTML/Firebase or add images/videos.',
-                ),
-                style: TextStyle(
-                  color: cs.onSurface.withAlpha(190),
-                  fontWeight: FontWeight.w600,
-                  height: 1.35,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...article.sections.map((sec) => _Section(section: sec)),
+            if (intro != null) ...[
+              _IntroCard(text: intro.body(context)),
+              const SizedBox(height: 12),
+            ],
+            ...sections.map((sec) => _Section(section: sec)),
+            const SizedBox(height: 6),
+            _FooterNote(),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IntroCard extends StatelessWidget {
+  const _IntroCard({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.primary.withAlpha(14),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withAlpha(55)),
+      ),
+      child: SelectableText(
+        text,
+        style: TextStyle(
+          color: cs.onSurface.withAlpha(220),
+          fontWeight: FontWeight.w700,
+          height: 1.45,
         ),
       ),
     );
@@ -111,7 +131,7 @@ class _Section extends StatelessWidget {
                 heading,
                 style: const TextStyle(
                   fontWeight: FontWeight.w900,
-                  fontSize: 15,
+                  fontSize: 16,
                 ),
               ),
               const SizedBox(height: 8),
@@ -121,10 +141,38 @@ class _Section extends StatelessWidget {
               style: TextStyle(
                 color: cs.onSurface.withAlpha(215),
                 fontWeight: FontWeight.w600,
-                height: 1.45,
+                height: 1.5,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FooterNote extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withAlpha(35),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withAlpha(120)),
+      ),
+      child: Text(
+        tikkiTr(
+          context,
+          ar: 'إذا كان لديك سؤال أو بلاغ يتعلق بالخصوصية أو المحتوى، تواصل معنا من صفحة الدعم داخل التطبيق.',
+          fr: 'Si vous avez une question ou un signalement (confidentialité/contenu), contactez le support dans l\'application.',
+          en: 'If you have a privacy/content question or report, contact Support in the app.',
+        ),
+        style: TextStyle(
+          color: cs.onSurface.withAlpha(200),
+          fontWeight: FontWeight.w600,
+          height: 1.35,
         ),
       ),
     );

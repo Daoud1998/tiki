@@ -12,7 +12,20 @@
           "package_name": "app.tiki.mr"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "36657885045-sf4ml8ohov8n8d0s8ie9von0rnpqgo66.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.tiki.mr",
+            "certificate_hash": "e61d7d5252133523ca02c3d484fd2de02625e967"
+          }
+        },
+        {
+          "client_id": "36657885045-caf16p11g1b5h88vqpl0uiagufh9cl30.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBbAWm9s5DyGEv6LgTM6tUQsJB5Jf_ut5U"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "36657885045-caf16p11g1b5h88vqpl0uiagufh9cl30.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "36657885045-991udcmfndl66l28a7re3j6uhcktof59.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.tiki.mr"
+              }
+            }
+          ]
         }
       }
     }

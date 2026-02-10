@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -95,7 +97,7 @@ class AuthController extends StateNotifier<AuthState> {
         userId: u.uid,
         name: u.displayName,
         phoneE164: u.phoneNumber,
-        email: u.email,
+        email: _safeEmail(u.email),
         provider: _guessProvider(u),
       );
       unawaited(_ensureUserDoc(user: u));
@@ -114,7 +116,7 @@ class AuthController extends StateNotifier<AuthState> {
         userId: user.uid,
         name: user.displayName,
         phoneE164: user.phoneNumber,
-        email: user.email,
+        email: _safeEmail(user.email),
         provider: _guessProvider(user),
       );
       await _persistSession(state);
@@ -162,6 +164,18 @@ class AuthController extends StateNotifier<AuthState> {
     return '+222$digits';
   }
 
+  bool _isPseudoEmail(String? email) {
+    final em = (email ?? '').trim().toLowerCase();
+    return em.endsWith('@tiki.phone');
+  }
+
+  String _pseudoEmailForPhone(String phoneE164) {
+    final digits = phoneE164.replaceAll(RegExp(r'[^0-9]'), '');
+    return 'p$digits@tiki.phone';
+  }
+
+  String? _safeEmail(String? email) => _isPseudoEmail(email) ? null : email;
+
   String _mapFirebaseError(Object e) {
     if (e is fb.FirebaseAuthException) {
       switch (e.code) {
@@ -179,6 +193,18 @@ class AuthController extends StateNotifier<AuthState> {
           return 'otp_invalid';
         case 'network-request-failed':
           return 'network';
+        case 'wrong-password':
+          return 'wrong_password';
+        case 'user-not-found':
+          return 'user_not_found';
+        case 'invalid-credential':
+          return 'wrong_password';
+        case 'email-already-in-use':
+          return 'email_in_use';
+        case 'weak-password':
+          return 'weak_password';
+        case 'requires-recent-login':
+          return 'requires_recent_login';
         default:
           return e.code;
       }
@@ -216,24 +242,27 @@ class AuthController extends StateNotifier<AuthState> {
     required fb.User user,
     String? displayName,
     String? email,
+    String? phoneE164Override,
   }) async {
     final uid = user.uid;
     final ref = FirebaseFirestore.instance.collection('users').doc(uid);
     final snap = await ref.get();
 
     final now = FieldValue.serverTimestamp();
+    final phone = (phoneE164Override ?? user.phoneNumber)?.trim();
+
     final data = <String, dynamic>{
       'uid': uid,
-      'phoneE164': user.phoneNumber,
       'lastSeenAt': now,
       'updatedAt': now,
     };
 
+    if (phone != null && phone.isNotEmpty) data['phoneE164'] = phone;
+
     final dn = (displayName ?? user.displayName ?? '').trim();
     if (dn.isNotEmpty) data['displayName'] = dn;
-
     final em = (email ?? user.email ?? '').trim();
-    if (em.isNotEmpty) data['email'] = em;
+    if (em.isNotEmpty && !_isPseudoEmail(em)) data['email'] = em;
 
     if (!snap.exists) {
       data['createdAt'] = now;
@@ -267,7 +296,7 @@ class AuthController extends StateNotifier<AuthState> {
           await fb.FirebaseAuth.instance.signInWithCredential(cred);
           final u = fb.FirebaseAuth.instance.currentUser;
           if (u != null) {
-            await _ensureUserDoc(user: u);
+            await _ensureUserDoc(user: u, phoneE164Override: p);
           }
           if (!completer.isCompleted) completer.complete('auto');
         } catch (e) {
@@ -312,7 +341,7 @@ class AuthController extends StateNotifier<AuthState> {
 
       final u = res.user;
       if (u != null) {
-        await _ensureUserDoc(user: u);
+        await _ensureUserDoc(user: u, phoneE164Override: p);
       }
       return const AuthOpResult.ok();
     } catch (e) {
@@ -339,7 +368,7 @@ class AuthController extends StateNotifier<AuthState> {
       if (dn.isNotEmpty) {
         await u.updateDisplayName(dn);
       }
-      await _ensureUserDoc(user: u, displayName: dn, email: email);
+      await _ensureUserDoc(user: u, displayName: dn, email: email, phoneE164Override: _normalizePhone(phoneE164));
       return const AuthOpResult.ok();
     } catch (e) {
       return AuthOpResult.fail(_mapFirebaseError(e));
@@ -355,32 +384,7 @@ class AuthController extends StateNotifier<AuthState> {
     required String phoneE164,
     String languageCode = 'ar',
   }) async {
-    final p = _normalizePhone(phoneE164);
-    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
-
-    try {
-      final callable =
-          FirebaseFunctions.instance.httpsCallable('sendWhatsappOtp');
-      final res = await callable.call(<String, dynamic>{
-        'phoneE164': p,
-        'languageCode': languageCode,
-      });
-
-      final data = (res.data is Map)
-          ? Map<String, dynamic>.from(res.data as Map)
-          : <String, dynamic>{};
-      final ok = data['ok'] == true;
-
-      if (ok) return const AuthOpResult.ok();
-
-      final msg = (data['message'] ?? '').toString();
-      // If cooldown message, map to too_many_requests to reuse UI text.
-      if (msg.toLowerCase().contains('wait'))
-        return const AuthOpResult.fail('too_many_requests');
-      return const AuthOpResult.fail('unknown');
-    } catch (e) {
-      return AuthOpResult.fail(_mapFunctionsError(e));
-    }
+    return const AuthOpResult.fail('whatsapp_soon');
   }
 
   /// Verify OTP sent via WhatsApp and sign in using custom token.
@@ -388,45 +392,7 @@ class AuthController extends StateNotifier<AuthState> {
     required String phoneE164,
     required String code,
   }) async {
-    final p = _normalizePhone(phoneE164);
-    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
-
-    try {
-      final callable =
-          FirebaseFunctions.instance.httpsCallable('verifyWhatsappOtp');
-      final res = await callable.call(<String, dynamic>{
-        'phoneE164': p,
-        'code': code.trim(),
-      });
-
-      final data = (res.data is Map)
-          ? Map<String, dynamic>.from(res.data as Map)
-          : <String, dynamic>{};
-      final ok = data['ok'] == true;
-      if (!ok) {
-        final msg = (data['message'] ?? '').toString().toLowerCase();
-        if (msg.contains('expired'))
-          return const AuthOpResult.fail('otp_expired');
-        if (msg.contains('invalid'))
-          return const AuthOpResult.fail('otp_invalid');
-        if (msg.contains('too many'))
-          return const AuthOpResult.fail('too_many_requests');
-        return const AuthOpResult.fail('unknown');
-      }
-
-      final token = (data['customToken'] ?? '').toString();
-      if (token.isEmpty) return const AuthOpResult.fail('unknown');
-
-      final signRes =
-          await fb.FirebaseAuth.instance.signInWithCustomToken(token);
-      final u = signRes.user;
-      if (u != null) {
-        await _ensureUserDoc(user: u);
-      }
-      return const AuthOpResult.ok();
-    } catch (e) {
-      return AuthOpResult.fail(_mapFunctionsError(e));
-    }
+    return const AuthOpResult.fail('whatsapp_soon');
   }
 
   /// Signup via WhatsApp OTP then store profile info.
@@ -436,31 +402,160 @@ class AuthController extends StateNotifier<AuthState> {
     required String code,
     String? email,
   }) async {
-    final res = await signInWithWhatsAppOtp(phoneE164: phoneE164, code: code);
-    if (!res.ok) return res;
+    return const AuthOpResult.fail('whatsapp_soon');
+  }
 
-    final u = fb.FirebaseAuth.instance.currentUser;
-    if (u == null) return const AuthOpResult.fail('unknown');
+  
+  // ---------------------------------------------------------------------------
+  // Phone + Password (implemented via hidden Email/Password on a pseudo email)
+  // ---------------------------------------------------------------------------
 
-    final dn = name.trim();
+  /// Login using "phone + password" (internally Email/Password on pseudo email).
+  // NOTE: Password sign-in must NOT trigger OTP. OTP is only for SMS login / reset.
+  Future<AuthOpResult> signInWithPhonePassword({
+    required String phoneE164,
+    required String password,
+  }) async {
+    final p = _normalizePhone(phoneE164);
+    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
+    if (password.trim().isEmpty) return const AuthOpResult.fail('empty_password');
+
+    final email = _pseudoEmailForPhone(p);
+
     try {
-      if (dn.isNotEmpty) await u.updateDisplayName(dn);
-      await _ensureUserDoc(user: u, displayName: dn, email: email);
+      final res = await fb.FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password.trim(),
+      );
+
+      final u = res.user;
+      if (u != null) {
+        await _ensureUserDoc(user: u, phoneE164Override: p);
+      }
       return const AuthOpResult.ok();
     } catch (e) {
       return AuthOpResult.fail(_mapFirebaseError(e));
     }
   }
 
-  // ---------------------------------------------------------------------------
+  /// After OTP signup/signin, call this once to enable password-based login.
+  Future<AuthOpResult> enablePhonePasswordLogin({
+    required String phoneE164,
+    required String password,
+  }) async {
+    final u = fb.FirebaseAuth.instance.currentUser;
+    if (u == null) return const AuthOpResult.fail('not_signed_in');
+
+    final p = _normalizePhone(phoneE164);
+    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
+
+    final email = _pseudoEmailForPhone(p);
+
+    try {
+      final cred = fb.EmailAuthProvider.credential(
+        email: email,
+        password: password.trim(),
+      );
+
+      await u.linkWithCredential(cred);
+
+      await _ensureUserDoc(user: u, phoneE164Override: p);
+      return const AuthOpResult.ok();
+    } catch (e) {
+      if (e is fb.FirebaseAuthException) {
+        // Treat already-linked as success.
+        if (e.code == 'provider-already-linked') {
+          await _ensureUserDoc(user: u, phoneE164Override: p);
+          return const AuthOpResult.ok();
+        }
+      }
+      return AuthOpResult.fail(_mapFirebaseError(e));
+    }
+  }
+
+// ---------------------------------------------------------------------------
   // Third-party mock + profile
   // ---------------------------------------------------------------------------
 
-  Future<AuthOpResult> signInThirdPartyMock({
+
+
+String? _extractFacebookToken(dynamic accessToken) {
+  if (accessToken == null) return null;
+
+  // flutter_facebook_auth changed token field names across versions.
+  // Support both `.tokenString` (newer) and `.token` (older) without
+  // pinning the package version.
+  try {
+    final v = accessToken.tokenString;
+    if (v is String && v.trim().isNotEmpty) return v.trim();
+  } catch (_) {}
+  try {
+    final v = accessToken.token;
+    if (v is String && v.trim().isNotEmpty) return v.trim();
+  } catch (_) {}
+  try {
+    final m = accessToken.toJson();
+    if (m is Map) {
+      final v = m['tokenString'] ?? m['token'];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+  } catch (_) {}
+
+  return null;
+}  Future<AuthOpResult> signInThirdPartyMock({
     required AuthProviderKind provider,
     required String displayName,
   }) async {
-    return const AuthOpResult.fail('oauth_not_ready');
+    try {
+      switch (provider) {
+        case AuthProviderKind.google:
+          final g = GoogleSignIn();
+          final acc = await g.signIn();
+          if (acc == null) return const AuthOpResult.fail('cancelled');
+
+          final gAuth = await acc.authentication;
+          final cred = fb.GoogleAuthProvider.credential(
+            accessToken: gAuth.accessToken,
+            idToken: gAuth.idToken,
+          );
+
+          final res = await fb.FirebaseAuth.instance.signInWithCredential(cred);
+          final u = res.user;
+          if (u != null) {
+            await _ensureUserDoc(user: u);
+          }
+          return const AuthOpResult.ok();
+
+        case AuthProviderKind.facebook:
+          final loginRes = await FacebookAuth.instance.login();
+          if (loginRes.status != LoginStatus.success) {
+            if (loginRes.status == LoginStatus.cancelled) {
+              return const AuthOpResult.fail('cancelled');
+            }
+            return const AuthOpResult.fail('oauth_failed');
+          }
+
+          final accessToken = loginRes.accessToken;
+          if (accessToken == null) return const AuthOpResult.fail('oauth_failed');
+
+          final token = _extractFacebookToken(accessToken);
+          if (token == null) return const AuthOpResult.fail('oauth_failed');
+
+          final cred = fb.FacebookAuthProvider.credential(token);
+
+          final res = await fb.FirebaseAuth.instance.signInWithCredential(cred);
+          final u = res.user;
+          if (u != null) {
+            await _ensureUserDoc(user: u);
+          }
+          return const AuthOpResult.ok();
+
+        default:
+          return const AuthOpResult.fail('oauth_not_ready');
+      }
+    } catch (e) {
+      return AuthOpResult.fail(_mapFirebaseError(e));
+    }
   }
 
   Future<String?> updateProfile({required String name, String? email}) async {
@@ -482,7 +577,7 @@ class AuthController extends StateNotifier<AuthState> {
       final now = FieldValue.serverTimestamp();
       final data = <String, dynamic>{
         'uid': uid,
-        'phoneE164': u.phoneNumber,
+        'phoneE164': (u.phoneNumber ?? state.phoneE164),
         'displayName': dn,
         'lastSeenAt': now,
         'updatedAt': now,
@@ -510,7 +605,27 @@ class AuthController extends StateNotifier<AuthState> {
     required String currentPassword,
     required String newPassword,
   }) async {
-    return 'not_supported';
+    final u = fb.FirebaseAuth.instance.currentUser;
+    if (u == null) return 'not_signed_in';
+
+    final hasPasswordProvider =
+        u.providerData.any((p) => p.providerId == 'password');
+    if (!hasPasswordProvider) return 'not_supported';
+
+    final email = u.email;
+    if (email == null || email.trim().isEmpty) return 'not_supported';
+
+    try {
+      final cred = fb.EmailAuthProvider.credential(
+        email: email.trim(),
+        password: currentPassword.trim(),
+      );
+      await u.reauthenticateWithCredential(cred);
+      await u.updatePassword(newPassword.trim());
+      return null;
+    } catch (e) {
+      return _mapFirebaseError(e);
+    }
   }
 
   Future<void> signOut() async {

@@ -30,6 +30,10 @@ import '../../notifications/domain/app_notification.dart';
 import '../../notifications/presentation/notifications_controller.dart';
 import '../../receipts/presentation/receipts_controller.dart';
 import '../state/home_offers_provider.dart';
+import 'package:tiki/features/promo_ads/state/promo_ads_plans_providers.dart';
+import 'package:tiki/features/promo_ads/data/promo_ads_plans_repository.dart';
+import 'package:tiki/features/payments/state/payments_providers.dart';
+import 'package:tiki/features/payments/data/payments_settings_repository.dart';
 
 /// A small "refresh bus" used in mock mode.
 ///
@@ -407,6 +411,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final GlobalKey _focusKey = GlobalKey();
   String? _handledFocusId;
 
+  late final int _bootAtMs;
+  Timer? _bootTimer;
+  bool _didWarmBootFetch = false;
+
   final TextEditingController _qCtl = TextEditingController();
   Timer? _debounce;
 
@@ -434,14 +442,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _handleExternalRefresh(),
-    );
+    _bootAtMs = DateTime.now().millisecondsSinceEpoch;
+
+    // Ensure we leave the boot loader even if the feed stream is slow to emit.
+    _bootTimer?.cancel();
+    _bootTimer = Timer(const Duration(milliseconds: 2600), () {
+      if (!mounted) return;
+      setState(() {});
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleExternalRefresh();
+      _warmBootFetch();
+    });
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _bootTimer?.cancel();
     _qCtl.dispose();
     super.dispose();
   }
@@ -465,6 +484,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _handledToken = token;
 
     _refresh(showHint: true, scrollToTop: true);
+  }
+
+  void _warmBootFetch() {
+    if (_didWarmBootFetch) return;
+    _didWarmBootFetch = true;
+
+    // Mimic a first "Home tap" so the feed attaches & refreshes on cold start.
+    _refresh(showHint: false, scrollToTop: false);
   }
 
   void _snack(String msg, [Color? bg]) {
@@ -552,11 +579,112 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final locale = Localizations.localeOf(context);
 
     // Firestore feed (A2)
-    final feedAsync = ref.watch(productsFeedProvider);
+    final feedAsync = ref.watch(productsFeedProvider);    // --- Boot/loading gate (Temu-style) ---
+    // Keep the user on a lightweight loader until the feed emits its first value.
+    final data = feedAsync.asData?.value;
+    final hasData = data != null;
+    final first = data ?? const <AppProduct>[];
+
+    final bootAgeMs = DateTime.now().millisecondsSinceEpoch - _bootAtMs;
+    // Grace period to avoid showing an "empty home" flicker on cold start / slow cache.
+    final inBootGrace = bootAgeMs < 2400;
+
+    final hasErrorNoData = feedAsync.hasError && !hasData;
+    if (hasErrorNoData) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFFF7F2),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wifi_off_rounded, size: 46),
+                  const SizedBox(height: 10),
+                  Text(
+                    _tr(
+                      c: context,
+                      ar: 'تعذر تحميل المنتجات',
+                      fr: 'Impossible de charger les produits',
+                      en: 'Failed to load products',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton(
+                    onPressed: () => _refresh(showHint: false, scrollToTop: false),
+                    child: Text(
+                      _tr(
+                        c: context,
+                        ar: 'إعادة المحاولة',
+                        fr: 'Réessayer',
+                        en: 'Retry',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final showBootLoader =
+        !hasData ||
+        (first.isEmpty && (feedAsync.isLoading || inBootGrace) && !feedAsync.hasError);
+    if (showBootLoader) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFFF7F2),
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  'assets/images/branding/tiki_lockup_nogap.png',
+                  width: 200,
+                  errorBuilder: (_, __, ___) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.shopping_bag_rounded, color: cs.primary, size: 32),
+                      const SizedBox(width: 0),
+                      Text(
+                        'TIKI',
+                        style: TextStyle(
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                          color: cs.primary,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.6,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      cs.primary.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
 
     // Always show newest first.
     final all =
-        List<AppProduct>.from(feedAsync.asData?.value ?? const <AppProduct>[])
+        List<AppProduct>.from(first)
           ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
 
     final qNorm = maNormalizeQuery(_qCtl.text);
@@ -1774,13 +1902,14 @@ class _PromoItem {
 
   /// Promo moderation status:
   /// - none: normal ad
-  /// - pending: user submitted Bankily TX id (awaiting review)
+  /// - pending: user submitted a payment reference id (awaiting review)
   /// - approved: VIP active
   /// - rejected: rejected
   final String promoStatus;
 
   final String? promoPkgId;
   final String? promoTxId;
+  final String? promoWalletId;
   final int? promoReqAtMs;
   final int? promoApprAtMs;
   final int? promoUntilMs;
@@ -1820,6 +1949,7 @@ class _PromoItem {
     this.promoStatus = 'none',
     this.promoPkgId,
     this.promoTxId,
+    this.promoWalletId,
     this.promoReqAtMs,
     this.promoApprAtMs,
     this.promoUntilMs,
@@ -1944,6 +2074,9 @@ class _PromoItem {
       promoTxId: _asStr(m['promoTxId']).trim().isEmpty
           ? null
           : _asStr(m['promoTxId']).trim(),
+      promoWalletId: _asStr(m['promoWalletId']).trim().isEmpty
+          ? (_asStr(m['walletId']).trim().isEmpty ? null : _asStr(m['walletId']).trim())
+          : _asStr(m['promoWalletId']).trim(),
       promoReqAtMs: reqAt,
       promoApprAtMs: apprAt,
       promoUntilMs: until,
@@ -1975,6 +2108,7 @@ class _PromoItem {
       'promoStatus': promoStatus.trim(),
       'promoPkgId': (promoPkgId ?? '').trim(),
       'promoTxId': (promoTxId ?? '').trim(),
+      'promoWalletId': (promoWalletId ?? '').trim(),
       'promoReqAtMs': promoReqAtMs,
       'promoApprAtMs': promoApprAtMs,
       'promoUntilMs': promoUntilMs,
@@ -2021,6 +2155,7 @@ class _PromoItem {
     String? promoStatus,
     Object? promoPkgId = _unset,
     Object? promoTxId = _unset,
+    Object? promoWalletId = _unset,
     Object? promoReqAtMs = _unset,
     Object? promoApprAtMs = _unset,
     Object? promoUntilMs = _unset,
@@ -2049,6 +2184,9 @@ class _PromoItem {
       promoPkgId:
           promoPkgId == _unset ? this.promoPkgId : promoPkgId as String?,
       promoTxId: promoTxId == _unset ? this.promoTxId : promoTxId as String?,
+      promoWalletId: promoWalletId == _unset
+          ? this.promoWalletId
+          : promoWalletId as String?,
       promoReqAtMs:
           promoReqAtMs == _unset ? this.promoReqAtMs : promoReqAtMs as int?,
       promoApprAtMs:
@@ -3215,7 +3353,7 @@ Future<void> _showCreatePromoSheet(BuildContext context, WidgetRef ref) async {
       frTitle: 'Demande VIP reçue (pub)',
       enTitle: 'VIP request received (ad)',
       arBody:
-          'طلب VIP لإعلانك قيد المراجعة. رقم العملية: ${created.promoTxId ?? ''}.',
+          'طلب VIP لإعلانك قيد المراجعة. رقم الدفع: ${created.promoTxId ?? ''}.',
       frBody:
           'Votre demande VIP est en cours de vérification. Transaction: ${created.promoTxId ?? ''}.',
       enBody:
@@ -3500,7 +3638,7 @@ class PromoAdsScreen extends ConsumerWidget {
           frTitle: 'Demande VIP en cours',
           enTitle: 'VIP request pending',
           arBody:
-              'تم إرسال طلب VIP لإعلانك. رقم العملية: ${updated.promoTxId ?? ''}.',
+              'تم إرسال طلب VIP لإعلانك. رقم الدفع: ${updated.promoTxId ?? ''}.',
           frBody:
               'Demande VIP envoyée. Transaction: ${updated.promoTxId ?? ''}.',
           enBody:
@@ -3510,22 +3648,52 @@ class PromoAdsScreen extends ConsumerWidget {
 
         // Save a local receipt so the seller can print it later.
         if (updated.promoTxId != null && updated.promoPkgId != null) {
-          final pkg = _kAdVipPkgs.firstWhere(
+          final plan = ref.read(promoAdsVipPlanProvider).asData?.value;
+          final pkgs = _vipPkgsFromPlan(plan);
+          final countryMult = plan?.countryWideMultiplier ?? 2;
+          final extraPct = plan?.multiWilayaExtraPercent ?? 0.20;
+          final capMult = plan?.multiWilayaMaxMultiplier ?? countryMult.toDouble();
+
+          final pkg = pkgs.firstWhere(
             (e) => e.id == updated.promoPkgId,
-            orElse: () => _kAdVipPkgs.first,
+            orElse: () => pkgs.isNotEmpty ? pkgs.first : _kAdVipPkgs.first,
           );
+
           final scopeIsCountry = _isCountryWideTarget(updated.targetWilayaId);
-          final multiplier =
-              scopeIsCountry ? kCountryWideVipPriceMultiplier : 1;
-          final effectivePrice =
-              _vipPriceForTarget(pkg, updated.targetWilayaId);
+          final count = _targetWilayaCount(updated.targetWilayaId);
+          final scope = scopeIsCountry
+              ? 'country'
+              : (count > 1 ? 'multi' : 'wilaya');
+
+          final multiplier = scopeIsCountry
+              ? countryMult.toDouble()
+              : (count > 1
+                  ? _multiWilayaMultiplier(
+                      count,
+                      extraPercentPerWilaya: extraPct,
+                      capMultiplier: capMult,
+                      countryWideMultiplier: countryMult,
+                    )
+                  : 1.0);
+
+          final effectivePrice = _vipPriceForTarget(
+            pkg,
+            updated.targetWilayaId,
+            countryWideMultiplier: countryMult,
+            extraPercentPerWilaya: extraPct,
+            multiWilayaCapMultiplier: capMult,
+          );
           await ref
               .read(receiptsControllerProvider.notifier)
               .addPromoAdVipRequest(
             metaExtra: <String, dynamic>{
               'targetWilayaId': (updated.targetWilayaId ?? '').trim(),
-              'scope': scopeIsCountry ? 'country' : 'wilaya',
+              'scope': scope,
               'multiplier': multiplier,
+              'countryWideMultiplier': countryMult,
+              'multiWilayaExtraPercent': extraPct,
+              'multiWilayaCapMultiplier': capMult,
+              'walletId': (updated.promoWalletId ?? '').trim(),
               'basePriceMru': pkg.priceMru,
             },
             adId: updated.id,
@@ -3918,10 +4086,15 @@ class PromoAdsScreen extends ConsumerWidget {
   }
 }
 
-// --- VIP packages for ADS (Bankily manual verification) ---
-// You can change prices/durations later without changing the app structure.
-const String kBankilyNumber = '+222 00 00 00 00';
-const String kBankilyRecipient = 'Tikki';
+// --- VIP packages for ADS (manual verification) ---
+//
+// Prices/rules are admin-configured in Firestore:
+// - promo_ads_plans/vip.durations: [{days, priceMru}, ...]
+// - promo_ads_plans/vip.countryWideMultiplier
+// - promo_ads_plans/vip.multiWilayaExtraPercent (0.20 or 20)
+// - promo_ads_plans/vip.multiWilayaMaxMultiplier (cap; also limited by countryWideMultiplier)
+//
+// The list below is only a fallback if the plan isn't available.
 
 class _VipPkg {
   final String id;
@@ -3952,9 +4125,33 @@ final List<_VipPkg> _kAdVipPkgs = [
   const _VipPkg(id: 'vip_30d', days: 30, priceMru: 7000),
 ];
 
-// Country-wide placement costs more than a single wilaya.
-// (Option A) Scope is either: a single wilaya OR all Mauritania.
-const int kCountryWideVipPriceMultiplier = 2;
+String _vipPkgIdForDays(int days) => 'vip_${days}d';
+
+int _vipDaysFromPkgId(String? id) {
+  final s = (id ?? '').trim().toLowerCase();
+  if (s.isEmpty) return 0;
+  // expected: vip_7d
+  final parts = s.split('_');
+  if (parts.length < 2) return 0;
+  final d = parts.last;
+  final numStr = d.endsWith('d') ? d.substring(0, d.length - 1) : d;
+  return int.tryParse(numStr) ?? 0;
+}
+
+List<_VipPkg> _vipPkgsFromPlan(PromoAdsVipPlan? plan) {
+  final p = plan;
+  if (p == null) return _kAdVipPkgs;
+  if (p.durations.isEmpty) return _kAdVipPkgs;
+  return p.durations
+      .map(
+        (d) => _VipPkg(
+          id: _vipPkgIdForDays(d.days),
+          days: d.days,
+          priceMru: d.priceMru,
+        ),
+      )
+      .toList(growable: false);
+}
 
 enum _AdReachMode { single, multi, country }
 
@@ -3996,30 +4193,56 @@ bool _targetsUserWilaya(String? target, String? myWilayaId) {
   return false;
 }
 
-/// Multi-wilaya pricing: each additional wilaya adds +20% of the base price.
-/// The final multiplier never exceeds the country-wide multiplier (x2).
-double _multiWilayaMultiplier(int count) {
-  if (count <= 1) return 1.0;
-  final m = 1.0 + (0.20 * (count - 1));
-  final maxM = kCountryWideVipPriceMultiplier.toDouble();
-  return m > maxM ? maxM : m;
+double _multiWilayaCap(int countryWideMultiplier, double multiWilayaCapMultiplier) {
+  final cw = countryWideMultiplier <= 0 ? 1.0 : countryWideMultiplier.toDouble();
+  var cap = multiWilayaCapMultiplier <= 0 ? cw : multiWilayaCapMultiplier;
+  if (cap > cw) cap = cw;
+  if (cap < 1.0) cap = 1.0;
+  return cap;
 }
 
-int _vipPriceForTarget(_VipPkg pkg, String? target) {
+/// Multi-wilaya pricing: each additional wilaya adds a configurable percent of the base price.
+/// The final multiplier never exceeds the configured cap and never exceeds the country-wide multiplier.
+double _multiWilayaMultiplier(
+  int count, {
+  required double extraPercentPerWilaya,
+  required double capMultiplier,
+  required int countryWideMultiplier,
+}) {
+  if (count <= 1) return 1.0;
+  final pct = extraPercentPerWilaya < 0 ? 0.0 : extraPercentPerWilaya;
+  final base = 1.0 + (pct * (count - 1));
+  final cap = _multiWilayaCap(countryWideMultiplier, capMultiplier);
+  return base > cap ? cap : base;
+}
+
+int _vipPriceForTarget(
+  _VipPkg pkg,
+  String? target, {
+  required int countryWideMultiplier,
+  required double extraPercentPerWilaya,
+  required double multiWilayaCapMultiplier,
+}) {
   final t = (target ?? '').trim();
-  if (t.isEmpty) {
-    return pkg.priceMru * kCountryWideVipPriceMultiplier;
-  }
+  final cwMult = countryWideMultiplier <= 0 ? 1 : countryWideMultiplier;
+  final maxPrice = pkg.priceMru * cwMult;
+
+  if (t.isEmpty) return maxPrice;
   final count = _targetWilayaCount(t);
   if (count <= 1) return pkg.priceMru;
 
-  final m = _multiWilayaMultiplier(count);
+  final m = _multiWilayaMultiplier(
+    count,
+    extraPercentPerWilaya: extraPercentPerWilaya,
+    capMultiplier: multiWilayaCapMultiplier,
+    countryWideMultiplier: cwMult,
+  );
+
   final price = (pkg.priceMru * m).round();
-  final max = pkg.priceMru * kCountryWideVipPriceMultiplier;
-  return price > max ? max : price;
+  return price > maxPrice ? maxPrice : price;
 }
 
-class _CreatePromoScreen extends StatefulWidget {
+class _CreatePromoScreen extends ConsumerStatefulWidget {
   const _CreatePromoScreen({
     this.initial,
     this.forceVip = false,
@@ -4044,10 +4267,10 @@ class _CreatePromoScreen extends StatefulWidget {
   final bool mineOnly;
 
   @override
-  State<_CreatePromoScreen> createState() => _CreatePromoScreenState();
+  ConsumerState<_CreatePromoScreen> createState() => _CreatePromoScreenState();
 }
 
-class _CreatePromoScreenState extends State<_CreatePromoScreen> {
+class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
   final titleCtrl = TextEditingController();
   final subCtrl = TextEditingController();
   final bodyCtrl = TextEditingController();
@@ -4069,6 +4292,7 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
   String? selectedCat;
   bool wantsVip = false;
   _VipPkg? selectedVipPkg;
+  String? _selectedWalletId;
   final txCtrl = TextEditingController();
 
   void _syncReachFromTarget() {
@@ -4335,6 +4559,8 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
           );
         }
         txCtrl.text = i.promoTxId ?? '';
+        final wid = (i.promoWalletId ?? '').trim();
+        _selectedWalletId = wid.isEmpty ? null : wid;
       }
       return;
     }
@@ -4411,7 +4637,63 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final isEdit = widget.initial != null;
-    final vipLocked = widget.initial?.isPromoApproved ?? false;
+    // When a VIP request is pending, prevent editing the VIP request fields.
+    final vipLocked = widget.initial?.isPromoPending ?? false;
+
+    final vipPlan = ref.watch(promoAdsVipPlanProvider).asData?.value;
+    final wallets =
+        ref.watch(paymentWalletsProvider).asData?.value ?? const <PaymentWallet>[];
+
+    final adVipPkgs = _vipPkgsFromPlan(vipPlan);
+    final countryMult = vipPlan?.countryWideMultiplier ?? 2;
+    final extraPct = vipPlan?.multiWilayaExtraPercent ?? 0.20;
+    final capMult = vipPlan?.multiWilayaMaxMultiplier ?? countryMult.toDouble();
+    final multiCap = _multiWilayaCap(countryMult, capMult);
+    final extraPctLabel = (extraPct * 100).round();
+    final multiCapLabel = (multiCap - multiCap.roundToDouble()).abs() < 0.0001
+        ? multiCap.toInt().toString()
+        : multiCap.toStringAsFixed(1);
+
+    // Keep selected package in sync with admin plan.
+    if (wantsVip && selectedVipPkg != null && adVipPkgs.isNotEmpty) {
+      final sid = selectedVipPkg!.id;
+      final updatedPkg = adVipPkgs.firstWhere(
+        (p) => p.id == sid,
+        orElse: () => selectedVipPkg!,
+      );
+      if (updatedPkg.priceMru != selectedVipPkg!.priceMru ||
+          updatedPkg.days != selectedVipPkg!.days) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() => selectedVipPkg = updatedPkg);
+        });
+      }
+    }
+
+    // Default wallet (when enabled).
+    if (wantsVip && wallets.isNotEmpty) {
+      final current = (_selectedWalletId ?? '').trim();
+      final w = wallets.firstWhere(
+        (x) => x.id == current,
+        orElse: () => wallets.first,
+      );
+      if (current.isEmpty || current != w.id) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() => _selectedWalletId = w.id);
+        });
+      }
+    }
+
+    final langCode = Localizations.localeOf(context).languageCode;
+    final selectedWallet = wallets.isEmpty
+        ? null
+        : wallets.firstWhere(
+            (w) => w.id == (_selectedWalletId ?? '').trim(),
+            orElse: () => wallets.first,
+          );
+    final selectedWalletLabel =
+        selectedWallet == null ? '' : selectedWallet.labelForLocale(langCode);
 
     return Scaffold(
       backgroundColor: cs.surface,
@@ -4896,9 +5178,9 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                     child: Text(
                       tikkiTr(
                         context,
-                        ar: 'كل ولاية إضافية تزيد السعر +20% (حتى حد أقصى يساوي السعر الوطني ×$kCountryWideVipPriceMultiplier).',
-                        fr: 'Chaque wilaya en plus ajoute +20% (plafond = national ×$kCountryWideVipPriceMultiplier).',
-                        en: 'Each extra wilaya adds +20% (cap = country-wide ×$kCountryWideVipPriceMultiplier).',
+                        ar: 'كل ولاية إضافية تزيد السعر +$extraPctLabel% (حتى حد أقصى يساوي السعر الأساسي ×$multiCapLabel).',
+                        fr: 'Chaque wilaya en plus ajoute +$extraPctLabel% (plafond = base ×$multiCapLabel).',
+                        en: 'Each extra wilaya adds +$extraPctLabel% (cap = base ×$multiCapLabel).',
                       ),
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
@@ -4922,9 +5204,9 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                   Expanded(
                     child: Text(
                       tikkiTr(context,
-                          ar: 'سيظهر إعلانك في جميع ولايات موريتانيا (السعر ×$kCountryWideVipPriceMultiplier).',
-                          fr: 'Votre pub sera visible partout (prix ×$kCountryWideVipPriceMultiplier).',
-                          en: 'Your ad will appear country-wide (price ×$kCountryWideVipPriceMultiplier).'),
+                          ar: 'سيظهر إعلانك في جميع ولايات موريتانيا (السعر ×$countryMult).',
+                          fr: 'Votre pub sera visible partout (prix ×$countryMult).',
+                          en: 'Your ad will appear country-wide (price ×$countryMult).'),
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
@@ -4971,7 +5253,7 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
             const SizedBox(height: 10),
           ],
 
-          // VIP promotion request (Bankily)
+          // VIP promotion request (manual payment)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
@@ -5001,9 +5283,9 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                           Text(
                             tikkiTr(
                               context,
-                              ar: 'ادفع عبر Bankily ثم أدخل رقم العملية. يتم التفعيل بعد المراجعة.',
-                              fr: 'Payez via Bankily puis saisissez le numéro. Activation après validation.',
-                              en: 'Pay via Bankily then enter TX id. Activated after review.',
+                              ar: 'ادفع عبر إحدى وسائل الدفع المتاحة ثم أدخل رقم العملية. يتم التفعيل بعد المراجعة.',
+                              fr: 'Payez via une méthode disponible puis saisissez le numéro. Activation après validation.',
+                              en: 'Pay using an available method then enter the transaction/reference id. Activated after review.',
                             ),
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
@@ -5023,6 +5305,7 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                                 wantsVip = v;
                                 if (!v) {
                                   selectedVipPkg = null;
+                                  _selectedWalletId = null;
                                   txCtrl.clear();
                                 }
                               }),
@@ -5049,44 +5332,130 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                 ],
                 if (wantsVip) ...[
                   const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: cs.surface,
-                      borderRadius: BorderRadius.circular(14),
-                      border:
-                          Border.all(color: cs.outlineVariant.withAlpha(170)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.account_balance_wallet_rounded,
-                            color: cs.onSurface.withValues(alpha: 0.70)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Bankily: $kBankilyNumber',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
+                  if (wallets.isEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: cs.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: cs.outlineVariant.withAlpha(170)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded,
+                              color: cs.error.withValues(alpha: 0.90)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              tikkiTr(
+                                context,
+                                ar: 'لم يتم إعداد وسائل الدفع من قبل الأدمن بعد. لن يعرف المستخدم أين يدفع.',
+                                fr: 'Aucune méthode de paiement n\'est configurée par l\'admin.',
+                                en: 'No payment methods configured by admin yet.',
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                kBankilyRecipient,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: cs.onSurface.withValues(alpha: 0.62),
-                                ),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                height: 1.25,
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    Text(
+                      tikkiTr(context,
+                          ar: 'اختر وسيلة الدفع',
+                          fr: 'Choisir une méthode',
+                          en: 'Choose payment method'),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: wallets.any(
+                              (w) => w.id == (_selectedWalletId ?? '').trim())
+                          ? (_selectedWalletId ?? '').trim()
+                          : wallets.first.id,
+                      items: wallets
+                          .map(
+                            (w) => DropdownMenuItem<String>(
+                              value: w.id,
+                              child: Text(w.labelForLocale(langCode)),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: vipLocked
+                          ? null
+                          : (v) => setState(
+                                () => _selectedWalletId = (v ?? '').trim(),
+                              ),
+                      decoration: InputDecoration(
+                        prefixIcon:
+                            const Icon(Icons.account_balance_wallet_rounded),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: cs.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: cs.outlineVariant.withAlpha(170)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.account_balance_wallet_rounded,
+                              color: cs.onSurface.withValues(alpha: 0.70)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${selectedWalletLabel.isEmpty ? tikkiTr(context, ar: 'محفظة', fr: 'Portefeuille', en: 'Wallet') : selectedWalletLabel}: ${selectedWallet?.number ?? ''}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  (selectedWallet?.displayName ?? '').trim(),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color:
+                                        cs.onSurface.withValues(alpha: 0.62),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: tikkiTr(context,
+                                ar: 'نسخ', fr: 'Copier', en: 'Copy'),
+                            onPressed: selectedWallet == null
+                                ? null
+                                : () async {
+                                    await Clipboard.setData(
+                                      ClipboardData(text: selectedWallet!.number),
+                                    );
+                                    if (!mounted) return;
+                                    _toast(tikkiTr(context,
+                                        ar: 'تم النسخ',
+                                        fr: 'Copié',
+                                        en: 'Copied'));
+                                  },
+                            icon: const Icon(Icons.copy_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Text(
                     tikkiTr(context,
@@ -5122,7 +5491,7 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                                       fontSize: 16),
                                 ),
                                 const SizedBox(height: 10),
-                                ..._kAdVipPkgs.map(
+                                ...adVipPkgs.map(
                                   (p) => ListTile(
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
@@ -5137,7 +5506,13 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                                           fontWeight: FontWeight.w900),
                                     ),
                                     subtitle: Text(
-                                      'MRU ${_vipPriceForTarget(p, _targetWilayaId)}',
+                                      'MRU ${_vipPriceForTarget(
+                                        p,
+                                        _targetWilayaId,
+                                        countryWideMultiplier: countryMult,
+                                        extraPercentPerWilaya: extraPct,
+                                        multiWilayaCapMultiplier: capMult,
+                                      )}',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w800,
                                         color: cs.onSurface
@@ -5175,7 +5550,13 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                                       ar: 'اضغط للاختيار',
                                       fr: 'Appuyez pour choisir',
                                       en: 'Tap to choose')
-                                  : '${selectedVipPkg!.label(context)} • MRU ${_vipPriceForTarget(selectedVipPkg!, _targetWilayaId)}',
+                                  : '${selectedVipPkg!.label(context)} • MRU ${_vipPriceForTarget(
+                                      selectedVipPkg!,
+                                      _targetWilayaId,
+                                      countryWideMultiplier: countryMult,
+                                      extraPercentPerWilaya: extraPct,
+                                      multiWilayaCapMultiplier: capMult,
+                                    )}',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
                                 color: selectedVipPkg == null
@@ -5195,10 +5576,12 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                     controller: txCtrl,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: tikkiTr(context,
-                          ar: 'رقم العملية (Bankily)',
-                          fr: 'Numéro de transaction',
-                          en: 'Bankily TX id'),
+                      labelText: tikkiTr(
+                        context,
+                        ar: 'رقم العملية${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                        fr: 'Référence de paiement${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                        en: 'Payment reference${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                      ),
                       hintText: tikkiTr(
                         context,
                         ar: 'مثال: 36566606',
@@ -5207,9 +5590,9 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                       ),
                       helperText: tikkiTr(
                         context,
-                        ar: 'أدخل الرقم كما ظهر في رسالة Bankily بعد الدفع',
-                        fr: 'Saisissez le numéro reçu après paiement',
-                        en: 'Enter the TX id you received after payment',
+                        ar: 'أدخل الرقم كما ظهر لك بعد إتمام الدفع',
+                        fr: 'Saisissez la référence reçue après paiement',
+                        en: 'Enter the reference you received after payment',
                       ),
                       prefixIcon: const Icon(Icons.confirmation_number_rounded),
                       border: OutlineInputBorder(
@@ -5273,6 +5656,13 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                       return;
                     }
                     if (wantsVip) {
+                      if (wallets.isNotEmpty && selectedWallet == null) {
+                        _toast(tikkiTr(context,
+                            ar: 'اختر وسيلة الدفع أولاً',
+                            fr: 'Choisissez une méthode de paiement',
+                            en: 'Choose a payment method'));
+                        return;
+                      }
                       if (selectedVipPkg == null) {
                         _toast(tikkiTr(context,
                             ar: 'اختر باقة VIP أولاً',
@@ -5282,9 +5672,9 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                       }
                       if (txCtrl.text.trim().isEmpty) {
                         _toast(tikkiTr(context,
-                            ar: 'أدخل رقم العملية (Bankily)',
-                            fr: 'Entrez le numéro de transaction',
-                            en: 'Enter the Bankily TX id'));
+                            ar: 'أدخل رقم العملية',
+                            fr: 'Entrez la référence de paiement',
+                            en: 'Enter the payment reference'));
                         return;
                       }
                     }
@@ -5314,6 +5704,14 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                     final promoPkgId = effectiveWantsVip
                         ? (pkg?.id ?? prev?.promoPkgId)
                         : (prevApproved2 ? prev?.promoPkgId : null);
+                    final promoWalletId = effectiveWantsVip
+                        ? (() {
+                            final v = (selectedWallet?.id ??
+                                    (prev?.promoWalletId ?? ''))
+                                .trim();
+                            return v.isEmpty ? null : v;
+                          })()
+                        : (prevApproved2 ? prev?.promoWalletId : null);
                     final promoTxId = effectiveWantsVip
                         ? (txCtrl.text.trim().isEmpty
                             ? (prev?.promoTxId ?? '')
@@ -5344,6 +5742,7 @@ class _CreatePromoScreenState extends State<_CreatePromoScreen> {
                       promoStatus: promoStatus,
                       promoPkgId: promoPkgId,
                       promoTxId: promoTxId,
+                      promoWalletId: promoWalletId,
                       promoReqAtMs: promoReqAtMs,
                       promoApprAtMs: promoApprAtMs,
                       promoUntilMs: promoUntilMs,
@@ -5589,9 +5988,9 @@ class _TikkiSplitBannerState extends ConsumerState<_TikkiSplitBanner> {
       'en': 'Contact seller'
     },
     {
-      'ar': 'الدفع و Bankily',
-      'fr': 'Paiement & Bankily',
-      'en': 'Payments & Bankily'
+      'ar': 'الدفع',
+      'fr': 'Paiement',
+      'en': 'Payments'
     },
     {
       'ar': 'التوصيل و الاستلام',

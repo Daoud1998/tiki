@@ -67,6 +67,55 @@ class LocalStore {
     await _prefs.setStringList(_kLikedIds, list);
   }
 
+  // ---- Notifications (in-app) ----
+  // We store read ids locally so notifications stay read after restarting.
+  static const String _kNotifReadIdsPrefix = 'notif_read_ids_v1_';
+  static const String _kNotifInAppEnabledPrefix = 'notif_in_app_enabled_v1_';
+  static const String _kNotifSeenEnableCardPrefix = 'notif_seen_enable_card_v1_';
+
+  String _notifKeySuffix(String? userId) {
+    final id = (userId ?? '').trim();
+    return id.isEmpty ? 'guest' : id;
+  }
+
+  Set<String> getReadNotificationIds({String? userId}) {
+    final key = '$_kNotifReadIdsPrefix${_notifKeySuffix(userId)}';
+    final list = _prefs.getStringList(key) ?? const <String>[];
+    return list.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+  }
+
+  Future<void> setReadNotificationIds(Set<String> ids, {String? userId}) async {
+    final key = '$_kNotifReadIdsPrefix${_notifKeySuffix(userId)}';
+    // Keep bounded
+    final list = ids.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (list.length > 600) {
+      // Drop oldest-ish by random shuffle (good enough for local cache)
+      list.shuffle();
+      list.removeRange(600, list.length);
+    }
+    await _prefs.setStringList(key, list);
+  }
+
+  bool getInAppNotificationsEnabled({String? userId}) {
+    final key = '$_kNotifInAppEnabledPrefix${_notifKeySuffix(userId)}';
+    return _prefs.getBool(key) ?? false;
+  }
+
+  Future<void> setInAppNotificationsEnabled(bool v, {String? userId}) async {
+    final key = '$_kNotifInAppEnabledPrefix${_notifKeySuffix(userId)}';
+    await _prefs.setBool(key, v);
+  }
+
+  bool getHasSeenNotificationsEnableCard({String? userId}) {
+    final key = '$_kNotifSeenEnableCardPrefix${_notifKeySuffix(userId)}';
+    return _prefs.getBool(key) ?? false;
+  }
+
+  Future<void> setHasSeenNotificationsEnableCard(bool v, {String? userId}) async {
+    final key = '$_kNotifSeenEnableCardPrefix${_notifKeySuffix(userId)}';
+    await _prefs.setBool(key, v);
+  }
+
   // ---------------------------------------------------------------------------
   // Auth (local mock until Firebase)
   // ---------------------------------------------------------------------------

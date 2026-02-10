@@ -1,12 +1,12 @@
-import 'dart:convert';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
-import 'package:tiki/features/admin/presentation/products_migration_sheet.dart';
+import 'package:tiki/features/product/state/products_providers.dart';
+import 'package:tiki/features/notifications/presentation/notifications_controller.dart'
+    show notificationsUnreadCountProvider;
+import 'package:tiki/features/receipts/presentation/receipts_controller.dart';
 
 import 'package:tiki/app/state/app_setings.dart';
 import 'package:tiki/core/state/auth_state.dart' as auth;
@@ -14,6 +14,24 @@ import 'package:tiki/core/state/seller_phone_search_state.dart';
 import 'package:tiki/core/utils/name_utils.dart';
 
 import '../../../app/localization/l10n.dart';
+
+/// Whether push notifications are enabled for the signed-in user.
+///
+/// Stored in Firestore at: /users/{uid}.notificationsEnabled
+/// Defaults to `true` when missing.
+final notificationsEnabledProvider =
+    StreamProvider.family<bool, String>((ref, uid) {
+  final id = uid.trim();
+  if (id.isEmpty) {
+    return Stream<bool>.value(true);
+  }
+  final doc = FirebaseFirestore.instance.collection('users').doc(id);
+  return doc.snapshots().map((snap) {
+    final data = snap.data();
+    final v = data == null ? null : data['notificationsEnabled'];
+    return v is bool ? v : true;
+  }).handleError((_) => true);
+});
 
 void _safeBack(BuildContext context) {
   // Settings can be opened with context.go(), so there may be nothing to pop.
@@ -73,6 +91,17 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final localeOverride = ref.watch(localeOverrideProvider);
     final authState = ref.watch(auth.authControllerProvider);
+    final receipts = ref.watch(receiptsControllerProvider);
+    final showReceipts = authState.isSignedIn && receipts.isNotEmpty;
+
+    final uid = (authState.userId ?? '').trim();
+    final notifEnabledAsync = (authState.isSignedIn && uid.isNotEmpty)
+        ? ref.watch(notificationsEnabledProvider(uid))
+        : const AsyncValue<bool>.data(true);
+    final notifEnabled = notifEnabledAsync.maybeWhen(
+      data: (v) => v,
+      orElse: () => true,
+    );
 
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevron =
@@ -109,6 +138,32 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           _AccountCard(authState: authState),
           const SizedBox(height: 14),
+          if (showReceipts) ...[
+            _GroupCard(
+              title:
+                  _pick3(s, ar: 'المدفوعات', fr: 'Paiements', en: 'Payments'),
+              children: [
+                _SettingTile(
+                  icon: Icons.receipt_long_rounded,
+                  title:
+                      _pick3(s, ar: 'الفواتير', fr: 'Factures', en: 'Receipts'),
+                  subtitle: _pick3(s,
+                      ar: 'طباعة / مشاركة / متابعة',
+                      fr: 'Imprimer / Partager / Suivre',
+                      en: 'Print / Share / Track'),
+                  trailing: Icon(
+                    Icons.chevron_right_rounded,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.55),
+                  ),
+                  onTap: () => context.push('/you/receipts'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           _GroupCard(
             title: _pick3(s,
                 ar: 'التفضيلات', fr: 'Préférences', en: 'Preferences'),
@@ -166,27 +221,46 @@ class SettingsScreen extends ConsumerWidget {
             title: _pick3(s,
                 ar: 'التنبيهات', fr: 'Notifications', en: 'Notifications'),
             children: [
+              if (authState.isSignedIn && uid.isNotEmpty) ...[
+                _SwitchTile(
+                  icon: Icons.notifications_active_rounded,
+                  title: _pick3(s,
+                      ar: 'تفعيل الإشعارات',
+                      fr: 'Activer les notifications',
+                      en: 'Enable notifications'),
+                  subtitle: _pick3(s,
+                      ar: 'يمكنك إيقافها من هنا دون الذهاب لإعدادات الهاتف',
+                      fr: "Désactivez-les ici sans aller aux réglages du téléphone",
+                      en: 'Turn them off here (no need for phone settings)'),
+                  value: notifEnabled,
+                  onChanged: (v) async {
+                    // Persist preference (bootstrap.dart reacts and applies FCM changes).
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(uid)
+                        .set(
+                      {
+                        'notificationsEnabled': v,
+                        'notificationsEnabledAt': FieldValue.serverTimestamp(),
+                      },
+                      SetOptions(merge: true),
+                    );
+                  },
+                ),
+                const _InnerDivider(),
+              ],
               _SettingTile(
                 icon: Icons.notifications_none_rounded,
                 title: _pick3(s,
                     ar: 'الإشعارات', fr: 'Notifications', en: 'Notifications'),
                 subtitle: _pick3(s,
                     ar: 'داخل التطبيق', fr: 'Dans l’app', en: 'In-app'),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _Badge(
-                        text:
-                            _pick3(s, ar: 'قريبًا', fr: 'Bientôt', en: 'Soon')),
-                    const SizedBox(width: 6),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.55),
-                    ),
-                  ],
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.55),
                 ),
                 onTap: () {
                   // IMPORTANT: This app uses go_router (Navigator 2.0).
@@ -314,68 +388,6 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-          if (kDebugMode) ...[
-            const SizedBox(height: 12),
-            _GroupCard(
-              title: _pick3(s,
-                  ar: 'التطوير', fr: 'Développement', en: 'Development'),
-              children: [
-                _SettingTile(
-                  icon: Icons.cloud_done_rounded,
-                  title: _pick3(s,
-                      ar: 'اختبار Firestore',
-                      fr: 'Tester Firestore',
-                      en: 'Test Firestore'),
-                  subtitle: _pick3(s,
-                      ar: 'تأكيد users/{uid}',
-                      fr: 'Vérifier users/{uid}',
-                      en: 'Verify users/{uid}'),
-                  trailing: Icon(
-                    Icons.chevron_right_rounded,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55),
-                  ),
-                  onTap: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const _FirestoreDebugSheet(),
-                    );
-                  },
-                ),
-                const _InnerDivider(),
-                _SettingTile(
-                  icon: Icons.auto_fix_high_rounded,
-                  title: _pick3(s,
-                      ar: 'إصلاح بيانات المنتجات',
-                      fr: 'Réparer les produits',
-                      en: 'Repair products data'),
-                  subtitle: _pick3(s,
-                      ar: 'إضافة status/publishedAt/searchTokens',
-                      fr: 'Ajouter status/publishedAt/searchTokens',
-                      en: 'Backfill status/publishedAt/searchTokens'),
-                  trailing: Icon(
-                    Icons.chevron_right_rounded,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55),
-                  ),
-                  onTap: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ProductsMigrationSheet(),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -505,142 +517,6 @@ Future<_PickResult<ThemeMode>> _showThemePicker(
   );
 
   return result ?? _PickResult<ThemeMode>(false, current);
-}
-
-class _FirestoreDebugSheet extends ConsumerStatefulWidget {
-  const _FirestoreDebugSheet({super.key});
-
-  @override
-  ConsumerState<_FirestoreDebugSheet> createState() =>
-      _FirestoreDebugSheetState();
-}
-
-class _FirestoreDebugSheetState extends ConsumerState<_FirestoreDebugSheet> {
-  bool _loading = false;
-  String? _error;
-  Map<String, dynamic>? _doc;
-
-  dynamic _jsonSafe(dynamic v) {
-    if (v == null) return null;
-
-    if (v is Timestamp) return v.toDate().toIso8601String();
-    if (v is GeoPoint) return {'lat': v.latitude, 'lng': v.longitude};
-    if (v is DocumentReference) return v.path;
-
-    if (v is Map) {
-      return v.map((k, val) => MapEntry(k.toString(), _jsonSafe(val)));
-    }
-    if (v is Iterable) return v.map(_jsonSafe).toList();
-
-    return v;
-  }
-
-  Future<void> _ping() async {
-    final s = AppStrings.of(context);
-    final a = ref.read(auth.authControllerProvider);
-    final uid = (a.userId ?? '').trim();
-
-    if (uid.isEmpty || !a.isSignedIn) {
-      setState(() {
-        _error = _pick3(s,
-            ar: 'سجّل الدخول أولاً',
-            fr: 'Connectez-vous d’abord',
-            en: 'Please sign in first');
-      });
-      return;
-    }
-
-    setState(() {
-      _loading = true;
-      _error = null;
-      _doc = null;
-    });
-
-    try {
-      final docRef = FirebaseFirestore.instance.collection('users').doc(uid);
-
-      await docRef.set({
-        'userId': uid,
-        'lastPingAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'name': a.name ?? '',
-        'phoneE164': a.phoneE164,
-        'email': a.email,
-        'debug': true,
-      }, SetOptions(merge: true));
-
-      final snap = await docRef.get();
-      setState(() {
-        _doc = snap.data() ?? <String, dynamic>{};
-      });
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = AppStrings.of(context);
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final closeIcon = isRtl ? Icons.close_rounded : Icons.close_rounded;
-
-    return _BottomSheetShell(
-      title: _pick3(s,
-          ar: 'اختبار Firestore', fr: 'Tester Firestore', en: 'Test Firestore'),
-      closeIcon: closeIcon,
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-        children: [
-          FilledButton.icon(
-            onPressed: _loading ? null : _ping,
-            icon: _loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.play_arrow_rounded),
-            label: Text(_pick3(s, ar: 'Ping', fr: 'Ping', en: 'Ping')),
-          ),
-          const SizedBox(height: 12),
-          if (_error != null)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                _error!,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-          if (_doc != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Theme.of(context).dividerColor.withOpacity(0.25),
-                ),
-              ),
-              child: SelectableText(
-                JsonEncoder.withIndent('  ').convert(_jsonSafe(_doc)),
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 class _BottomSheetShell extends StatelessWidget {
@@ -1020,7 +896,14 @@ class _AccountCard extends ConsumerWidget {
                 return;
               }
               await ref.read(auth.authControllerProvider.notifier).signOut();
-            },
+              // Refresh product feed & notifications immediately after logout.
+              ref.invalidate(notificationsUnreadCountProvider);
+              ref.invalidate(productsFeedProvider);
+              if (context.mounted) {
+                final t = DateTime.now().millisecondsSinceEpoch.toString();
+                context.go('/home?r=logout_$t');
+              }
+},
             child: Text(isSignedIn
                 ? (s.isAr
                     ? 'خروج'

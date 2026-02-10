@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:tiki/core/constants/support_contacts.dart';
 import 'package:tiki/features/notifications/domain/app_notification.dart';
@@ -2406,31 +2407,20 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
     } else {
       attrsForSave.remove('location_note');
     }
-
-    // VIP / promo request (optional)
-    final promoApproved = (_editing?.attrs['promo_status'] ?? '') == 'approved';
-    if (!promoApproved) {
-      if (_vipRequested) {
-        final plan = _selectedVipPlan;
-        attrsForSave['promo_status'] =
-            (newPrice <= 0) ? 'needs_price' : 'pending';
-        attrsForSave['promo_pkg_id'] = plan.id;
-        attrsForSave['promo_tier'] = plan.tier;
-        attrsForSave['promo_rank'] = plan.rank.toString();
-        attrsForSave['promo_req_at_ms'] =
-            DateTime.now().millisecondsSinceEpoch.toString();
-        attrsForSave['promo_days'] = plan.days.toString();
-        attrsForSave['promo_price_mru'] = plan.priceMru.toString();
-      } else {
-        attrsForSave.remove('promo_status');
-        attrsForSave.remove('promo_pkg_id');
-        attrsForSave.remove('promo_req_at_ms');
-        attrsForSave.remove('promo_appr_at_ms');
-        attrsForSave.remove('promo_until_ms');
-        attrsForSave.remove('promo_days');
-        attrsForSave.remove('promo_price_mru');
-        attrsForSave.remove('promo_tx_id');
-      }
+    // VIP is no longer requested from the publish wizard.
+    // We keep existing promo_* fields when editing, but ensure new listings
+    // don't accidentally carry stale promo fields from old drafts.
+    if (_editing == null) {
+      attrsForSave.remove('promo_status');
+      attrsForSave.remove('promo_pkg_id');
+      attrsForSave.remove('promo_tx_id');
+      attrsForSave.remove('promo_req_at_ms');
+      attrsForSave.remove('promo_appr_at_ms');
+      attrsForSave.remove('promo_until_ms');
+      attrsForSave.remove('promo_days');
+      attrsForSave.remove('promo_price_mru');
+      attrsForSave.remove('promo_tier');
+      attrsForSave.remove('promo_rank');
     }
 
     final store = ref.read(localStoreProvider);
@@ -2487,7 +2477,13 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
         'warrantyUnit': saveHasWarranty ? _warrantyUnit : null,
         'warrantyType': saveHasWarranty ? _warrantyType : null,
         'attrs': Map<String, String>.from(attrsForSave),
-        'status': current.isSold ? 'sold' : 'active',
+        // IMPORTANT: Don't force 'active' on edit.
+        // Some listings can be 'pending' (awaiting review) or 'paused'/'deleted'.
+        // Forcing 'active' can be rejected by Firestore rules and makes "Edit" work
+        // for some listings but not others.
+        'status': (current.status.trim().isEmpty)
+            ? (current.isSold ? 'sold' : 'active')
+            : current.status,
         'searchTokens': repo.buildSearchTokens(searchText),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -2501,12 +2497,6 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
         fr: 'Annonce mise à jour ✅',
         en: 'Listing updated ✅',
       ));
-
-      // VIP needs price: notify + show WhatsApp link (but do not block publish)
-      if (attrsForSave['promo_status'] == 'needs_price') {
-        _pushVipNeedsPriceNotification(productId: current.id);
-        await _showVipNeedsPriceDialog(productId: current.id);
-      }
 
       final token = DateTime.now().millisecondsSinceEpoch.toString();
       context.go('/you/listings?r=$token');
@@ -2656,12 +2646,6 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
           ? 'Listing published ✅'
           : 'Listing sent for review ✅',
     ));
-
-// VIP needs price: notify + show WhatsApp link (but do not block publish)
-    if (attrsForSave['promo_status'] == 'needs_price') {
-      _pushVipNeedsPriceNotification(productId: id);
-      await _showVipNeedsPriceDialog(productId: id);
-    }
 
     final action = await showDialog<String>(
           context: context,
@@ -3011,7 +2995,7 @@ You can track it in My listings.''',
                     aspectRatio: 4 / 5,
                     child: PageView(
                       children: _images
-                          .map((p) => Image.file(File(p), fit: BoxFit.cover))
+                          .map((p) => _SmartImage(path: p, fit: BoxFit.cover))
                           .toList(),
                     ),
                   ),
@@ -3897,10 +3881,6 @@ You can track it in My listings.''',
                     prefixIcon: const Icon(Icons.payments_outlined),
                   ),
                 ),
-
-                const SizedBox(height: 12),
-                _vipSection(cs),
-                const SizedBox(height: 10),
 
 // Warranty (optional, smart duration)
                 if (supportsWarranty) ...[
@@ -5529,10 +5509,32 @@ class _SmartImage extends StatelessWidget {
               color: cs.onSurface.withAlpha(120)),
         );
 
+    Widget loading() => Container(
+          color: cs.surfaceContainerHighest,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.2),
+          ),
+        );
+
     if (path.trim().isEmpty) return fallback();
     if (path.startsWith('http')) {
       return Image.network(path,
           fit: fit, errorBuilder: (_, __, ___) => fallback());
+    }
+    if (path.startsWith('gs://')) {
+      return FutureBuilder<String>(
+        future: FirebaseStorage.instance.refFromURL(path).getDownloadURL(),
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) return loading();
+          final url = (snap.data ?? '').trim();
+          if (url.isEmpty) return fallback();
+          return Image.network(url,
+              fit: fit, errorBuilder: (_, __, ___) => fallback());
+        },
+      );
     }
     if (!kIsWeb) {
       final f = File(path);

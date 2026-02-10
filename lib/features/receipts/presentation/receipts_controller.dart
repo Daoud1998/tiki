@@ -174,7 +174,40 @@ class ReceiptsController extends StateNotifier<List<ServiceReceipt>> {
     await _persist();
   }
 
-  Future<void> addPromoAdVipRequest({
+  
+  Future<void> activateLatestPendingPromoAdVip({
+    required String adId,
+    required DateTime approvedAt,
+  }) async {
+    final aid = adId.trim();
+    if (aid.isEmpty) return;
+
+    final pending = state
+        .where((r) =>
+            r.kind == ServiceReceiptKind.promoAdVip &&
+            (r.subjectId ?? '') == aid &&
+            r.status == ServiceReceiptStatus.pending)
+        .toList(growable: false)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (pending.isEmpty) return;
+    final latest = pending.first;
+
+    final dMs = (latest.meta['durationMs'] is num)
+        ? (latest.meta['durationMs'] as num).toInt()
+        : int.tryParse('${latest.meta['durationMs']}') ?? 0;
+    final dur = Duration(milliseconds: dMs > 0 ? dMs : 0);
+
+    final next = latest.copyWith(
+      status: ServiceReceiptStatus.active,
+      startsAt: approvedAt,
+      endsAt: dur.inMilliseconds > 0 ? approvedAt.add(dur) : null,
+    );
+
+    await upsert(next);
+  }
+
+Future<void> addPromoAdVipRequest({
     Map<String, dynamic>? metaExtra,
     required String adId,
     required String arTitle,

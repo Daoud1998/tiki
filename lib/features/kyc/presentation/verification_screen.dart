@@ -53,21 +53,6 @@ class VerificationScreen extends ConsumerWidget {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  String _catLabel(BuildContext context, String id) {
-    switch (id) {
-      case 'real_estate':
-        return tikkiTr(context,
-            ar: 'العقارات', fr: 'Immobilier', en: 'Real estate');
-      case 'cars':
-      case 'vehicles':
-        return tikkiTr(context, ar: 'السيارات', fr: 'Voitures', en: 'Cars');
-      case 'phones':
-        return tikkiTr(context, ar: 'الهواتف', fr: 'Téléphones', en: 'Phones');
-      default:
-        return id;
-    }
-  }
-
   String _buildWaMessage({
     required String template,
     required AuthState auth,
@@ -125,11 +110,6 @@ class VerificationScreen extends ConsumerWidget {
       final enabled = ui.allowInApp || ui.allowWhatsApp;
       final st = local.status;
 
-      final fastCats = ui.fastTrackCategories;
-      final fastCatsLabel = fastCats.isEmpty
-          ? '-'
-          : fastCats.map((c) => _catLabel(context, c)).join('، ');
-
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -144,7 +124,7 @@ class VerificationScreen extends ConsumerWidget {
             text: tikkiTr(
               context,
               ar: 'الوثائق لا تظهر للمستخدمين. تُراجع من الإدارة فقط.',
-              fr: "Les documents ne sont pas visibles. Revue par l'admin فقط.",
+              fr: "Les documents ne sont pas visibles. Revue par l'admin uniquement.",
               en: 'Documents are not public. Reviewed by admin only.',
             ),
           ),
@@ -168,20 +148,10 @@ class VerificationScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ...ui.benefitsAr.map((line) => Padding(
+                    ...ui.benefitsFor(Localizations.localeOf(context).languageCode).map((line) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(line),
                         )),
-                    const SizedBox(height: 8),
-                    Text(
-                      tikkiTr(
-                        context,
-                        ar: 'فئات تحتاج توثيق للنشر السريع: $fastCatsLabel',
-                        fr: 'Catégories pour نشر سريع: $fastCatsLabel',
-                        en: 'Categories for faster publish: $fastCatsLabel',
-                      ),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
                   ],
                 ),
               ),
@@ -197,7 +167,7 @@ class VerificationScreen extends ConsumerWidget {
             subtitle: tikkiTr(   
               context,
               ar: 'اختر طريقة واحدة فقط: داخل التطبيق أو واتساب.',
-              fr: 'Choisissez: داخل التطبيق أو WhatsApp.',
+              fr: "Choisissez une méthode : dans l'application ou WhatsApp.",
               en: 'Choose: in-app or WhatsApp.',
             ),
             icon: Icons.verified_user_outlined,
@@ -207,7 +177,7 @@ class VerificationScreen extends ConsumerWidget {
                 KycOptionCard(
                   title: tikkiTr(context,
                       ar: 'توثيق داخل التطبيق',
-                      fr: 'Dans التطبيق',
+                      fr: "Dans l'application",
                       en: 'In-app verification'),
                   subtitle: tikkiTr(context,
                       ar: 'ارفع صورة وثيقة (بطاقة/رخصة/إقامة) + سيلفي',
@@ -255,7 +225,7 @@ class VerificationScreen extends ConsumerWidget {
                   onTap: ui.allowWhatsApp
                       ? () async {
                           final msg = _buildWaMessage(
-                            template: ui.whatsAppTemplateAr,
+                            template: ui.whatsAppTemplateFor(Localizations.localeOf(context).languageCode),
                             auth: auth,
                           );
                           await _openWhatsApp(
@@ -280,16 +250,6 @@ class VerificationScreen extends ConsumerWidget {
           icon: DirChevrons.backIos(context),
           onPressed: () => context.pop(),
         ),
-        actions: [
-          IconButton(
-            tooltip: tikkiTr(context,
-                ar: 'إعدادات التوثيق',
-                fr: 'Paramètres KYC',
-                en: 'KYC settings'),
-            onPressed: () => context.push('/you/verify/info'),
-            icon: const Icon(Icons.tune_rounded),
-          ),
-        ],
       ),
       body: uiAsync.when(
         data: (ui) => buildBody(ui),
