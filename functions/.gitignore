@@ -1,4 +1,4 @@
 node_modules/
 *.local
-functions/serviceAccount.json
-functions/.env
+serviceAccount.json
+.env
