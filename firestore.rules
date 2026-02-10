@@ -24,7 +24,6 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/kyc_requests/$(uid)).data.status == "approved";
     }
 
-
     function isOwnerId(ownerId) {
       return signedIn() && ownerId == request.auth.uid;
     }
@@ -37,37 +36,45 @@ service cloud.firestore {
     match /users/{uid}/blocks/{blockId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
+
     // -------------------------
-    // Products (الموثقين يظهرون مباشرة + غير الموثقين يحتاجون موافقة)
+    // Products
     // -------------------------
     match /products/{productId} {
 
       // القراءة:
       // - الأدمن: يرى كل شيء
       // - صاحب المنتج: يرى منتجه دائمًا
-      // - العامة: ترى فقط المنتجات النشطة وغير المخفية
+      // - العامة: ترى فقط المنتجات النشطة وغير المخفية + الموافق عليها
       allow read: if
         isAdmin()
         || isOwnerId(resource.data.sellerId)
-        || (resource.data.isHidden != true && resource.data.status == "active");
+        || (
+          resource.data.isHidden != true
+          && resource.data.status == "active"
+          && resource.data.reviewStatus == "approved"
+        );
 
       // -------------------------
       // VIP / Promo حماية: منع المستخدم من تزوير حقول VIP (promo_*)
-      // يسمح فقط بطلب VIP (pending / needs_price / none), أما القبول/الرفض والمدة/الرتبة للأدمن فقط.
+      // يسمح فقط بطلب VIP (pending/needs_price/none)، أما القبول/الرفض والمدة/الرتبة للأدمن فقط.
       // -------------------------
       function safeAttrsFrom(d) {
         return (d.attrs is map) ? d.attrs : {};
       }
 
-      // Parse milliseconds stored as int or numeric string.
-      function _ms(v) {
-        return v is int ? v : (v is string && v.matches('^[0-9]+$') ? int(v) : 0);
+      function isPromoApproved(a) {
+        return a.promo_status == "approved" || a.promoStatus == "approved";
       }
 
-      function _promoUntilMs(a) {
-        let a1 = _ms(a.promo_until_ms);
-        let a2 = _ms(a.promoUntilMs);
-        return a1 > a2 ? a1 : a2;
+      function promoUntilMs(a) {
+        return a.promo_until_ms != null ? a.promo_until_ms : a.promoUntilMs;
+      }
+
+      // يعتبر منتهي إذا approved وكان until غير موجود أو مرّ وقته.
+      function promoExpired(a) {
+        return isPromoApproved(a)
+          && (promoUntilMs(a) == null || request.time.toMillis() > promoUntilMs(a));
       }
 
       function promoCreateSafe() {
@@ -91,7 +98,6 @@ service cloud.firestore {
         let newA = safeAttrsFrom(request.resource.data);
         let changed = newA.diff(oldA).affectedKeys();
 
-        // Owner cannot write admin-only fields.
         let disallowAdminFields = changed.hasAny([
           "promo_rank",
           "promo_until_ms",
@@ -103,28 +109,16 @@ service cloud.firestore {
           "promoRejectReason"
         ]);
 
-        // Allowed request-side statuses for owner.
-        let allowedStatus = ["pending", "none", "", "needs_price"];
+        // المالك لا يستطيع تغيير الحالة إلى approved/rejected
+        // ندعم المفتاحين promo_status و promoStatus؛ إذا تغيّر أحدهما فقط نتحقق منه فقط.
+        let promoStatusOk =
+          (!changed.hasAny(["promo_status"])
+            || (newA.promo_status == null || newA.promo_status in ["pending", "none", "", "needs_price"]))
+          && (!changed.hasAny(["promoStatus"])
+            || (newA.promoStatus == null || newA.promoStatus in ["pending", "none", "", "needs_price"]));
 
-        let wantsSnake = changed.hasAny(["promo_status"]);
-        let wantsCamel = changed.hasAny(["promoStatus"]);
-
-        let snakeOk = !wantsSnake || (newA.promo_status in allowedStatus);
-        let camelOk = !wantsCamel || (newA.promoStatus in allowedStatus);
-
-        // Owner can never set approved/rejected.
-        let neverApprove =
-          (!wantsSnake || (newA.promo_status != "approved" && newA.promo_status != "rejected"))
-          && (!wantsCamel || (newA.promoStatus != "approved" && newA.promoStatus != "rejected"));
-
-        let promoStatusOk = snakeOk && camelOk && neverApprove;
-
-        // If VIP is currently approved and not expired, lock promo fields entirely.
-        let wasApproved = (oldA.promo_status == "approved" || oldA.promoStatus == "approved");
-        let untilMs = _promoUntilMs(oldA);
-        let stillActive = wasApproved && (untilMs > request.time.toMillis());
-
-        let promoRequestKeys = [
+        // مفاتيح طلب VIP التي قد يكتبها المستخدم
+        let promoKeysChanged = changed.hasAny([
           "promo_status",
           "promo_req_at_ms",
           "promo_pkg_id",
@@ -139,11 +133,13 @@ service cloud.firestore {
           "promoPriceMru",
           "promoTxId",
           "promoTier"
-        ];
+        ]);
 
-        let lockWhileActive = !stillActive || !changed.hasAny(promoRequestKeys);
+        // إذا كان VIP approved وغير منتهي => قفل هذه المفاتيح على المالك.
+        // إذا كان منتهي (expired) => نسمح له يعيد الطلب (renew).
+        let lockAfterApprovedOk = !isPromoApproved(oldA) || promoExpired(oldA) || !promoKeysChanged;
 
-        return !disallowAdminFields && promoStatusOk && lockWhileActive;
+        return !disallowAdminFields && promoStatusOk && lockAfterApprovedOk;
       }
 
       // -------------------------
@@ -164,15 +160,39 @@ service cloud.firestore {
       }
 
       // إنشاء:
-      // - الموثق (KYC approved): يمكنه نشر active مباشرة
-      // - غير الموثق: ينشئ pending (مراجعة)
-      // ملاحظة: لا نُجبر وجود reviewStatus هنا لأن بعض الإنشاءات تتم عبر Cloud Functions.
+      // - نسمح دائمًا بإنشاء إعلان "pending" حتى لو لم يرسل reviewStatus.
+      // - إذا كان المستخدم موثق (KYC) يمكنه أيضًا إنشاء إعلان active (اختياري).
+      function createReviewStatusOk() {
+        let rs = request.resource.data.reviewStatus;
+        let kyc = isKycApproved(request.auth.uid);
+        // المستخدم العادي: null / pending فقط
+        // الموثّق (KYC): مسموح له يضع approved
+        return (rs == null || rs == "pending") || (kyc && rs == "approved");
+      }
+
+      // إنشاء:
+      // - أي مستخدم مسجّل يمكنه إنشاء منتج يخصه
+      // - الموثّق (KYC) يستطيع إنشاء إعلان active مباشرة مع reviewStatus=approved
+      // - غير الموثّق يستطيع إنشاء active لكن يكون reviewStatus=pending (لن يظهر للعامة حتى يوافق الأدمن)
       allow create: if signedIn()
         && request.resource.data.sellerId == request.auth.uid
-        && request.resource.data.isHidden != true
+        && (request.resource.data.isHidden != true)
+        && (request.resource.data.status in ["pending", "active"])
+        && createReviewStatusOk()
         && (
-          (isKycApproved(request.auth.uid) && request.resource.data.status == "active")
-          || (!isKycApproved(request.auth.uid) && request.resource.data.status == "pending")
+          // إن كان pending => reviewStatus يكون pending أو null
+          (request.resource.data.status == "pending"
+            && (request.resource.data.reviewStatus == null || request.resource.data.reviewStatus == "pending"))
+          // إن كان active =>
+          || (request.resource.data.status == "active"
+            && (
+              // الموثّق لازم approved
+              (isKycApproved(request.auth.uid)
+                && request.resource.data.reviewStatus == "approved")
+              // غير الموثق: pending أو null فقط
+              || (!isKycApproved(request.auth.uid)
+                && (request.resource.data.reviewStatus == "pending" || request.resource.data.reviewStatus == null))
+            ))
         )
         && promoCreateSafe();
 
@@ -180,10 +200,22 @@ service cloud.firestore {
       // - الأدمن فقط
       allow delete: if isAdmin();
 
+      function statusTransitionOk(oldS, newS) {
+        return (oldS == newS)
+          // من pending إلى active إذا المالك موثق أو المنتج approved
+          || (oldS == "pending" && newS == "active"
+              && (isKycApproved(request.auth.uid) || resource.data.reviewStatus == "approved"))
+          // يسمح للمالك بإدارة حالة الإعلان
+          || (oldS == "active" && (newS == "sold" || newS == "paused" || newS == "deleted"))
+          || (oldS == "paused" && (newS == "active" || newS == "sold" || newS == "deleted"))
+          || (oldS == "sold" && (newS == "active" || newS == "paused" || newS == "deleted"))
+          || (oldS == "deleted" && (newS == "active" || newS == "paused"));
+      }
+
       // تعديل:
       // - الأدمن يقدر يعدّل كل شيء
+      // - أي شخص يقدر يزيد المشاهدات فقط (قيمة +1)
       // - المالك يقدر يعدّل لكن لا يغير sellerId / reviewStatus / isHidden
-      //   ويسمح فقط بانتقالات status الآمنة.
       allow update: if isAdmin()
         || viewCountOnlyUpdate()
         || (
@@ -194,23 +226,7 @@ service cloud.firestore {
           && statusTransitionOk(resource.data.status, request.resource.data.status)
           && ownerPromoUpdateSafe()
         );
-
-      function statusTransitionOk(oldS, newS) {
-        return (oldS == newS)
-          // من pending إلى active فقط إذا المستخدم موثق
-          || (oldS == "pending" && newS == "active" && isKycApproved(request.auth.uid))
-          // يسمح للمالك بإدارة حالة الإعلان (بيع/إيقاف/حذف) + إرجاعه للبيع.
-          // active -> sold/paused/deleted
-          || (oldS == "active" && (newS == "sold" || newS == "paused" || newS == "deleted"))
-          // paused -> active/sold/deleted
-          || (oldS == "paused" && (newS == "active" || newS == "sold" || newS == "deleted"))
-          // sold -> active/paused/deleted (إرجاع للبيع)
-          || (oldS == "sold" && (newS == "active" || newS == "paused" || newS == "deleted"))
-          // deleted -> active/paused (استرجاع بعد الحذف)
-          || (oldS == "deleted" && (newS == "active" || newS == "paused"));
-      }
     }
-
 
     // Per-product daily view markers (used by incrementUniqueViewPerDay).
     // We allow creating and reading a specific marker doc; we do NOT allow listing.
@@ -317,7 +333,6 @@ service cloud.firestore {
       allow read, create, update, delete: if signedIn() && request.auth.uid == uid;
     }
 
-
     // Inbox (admin writes, user reads own)
     match /user_inbox/{uid}/items/{itemId} {
       allow read: if signedIn() && request.auth.uid == uid;
@@ -341,9 +356,9 @@ service cloud.firestore {
           ])
         );
 
-      // Optional: user can delete own inbox items.
       allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
     }
+
     // Reports
     match /reports/{reportId} {
       allow create: if signedIn()
