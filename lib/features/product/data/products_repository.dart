@@ -482,7 +482,6 @@ class ProductsRepository {
     final primary = _col
         .where('sellerId', isEqualTo: sellerId)
         .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
         .orderBy('publishedAt', descending: true)
         .limit(limit);
 
@@ -490,117 +489,38 @@ class ProductsRepository {
     final fallback = _col
         .where('sellerId', isEqualTo: sellerId)
         .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
         .limit(limit);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
-        final items = s.docs.map(AppProduct.fromDoc).toList();
-        items.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-        return items;
+        final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+        final visible = visibleDocs.map(AppProduct.fromDoc).toList();
+        visible.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+        return visible;
       },
     );
   }
 
   Stream<List<AppProduct>> watchActiveFeed({int limit = 50}) {
-    // Legacy support:
-    // - Some older products may not have `isHidden` set at all.
-    //   Firestore allows querying `isHidden == null` which matches documents where
-    //   the field is missing or explicitly null.
-    //
-    // We therefore merge:
-    //   1) status=active AND isHidden=false
-    //   2) status=active AND isHidden==null (missing)
-    final visibleFalse = _watchActiveByHiddenValue(isHiddenValue: false, limit: limit);
-    final visibleMissing =
-        _watchActiveByHiddenValue(isHiddenValue: null, limit: limit);
-
-    return _mergeTwoProductStreams(
-      a: visibleFalse,
-      b: visibleMissing,
-      limit: limit,
-    );
-  }
-
-  Stream<List<AppProduct>> _watchActiveByHiddenValue({
-    required Object? isHiddenValue,
-    required int limit,
-  }) {
     final primary = _col
         .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: isHiddenValue)
         .orderBy('publishedAt', descending: true)
         .limit(limit);
-
-    final fallback = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: isHiddenValue)
-        .limit(limit);
+    final fallback = _col.where('status', isEqualTo: 'active').limit(limit);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
-        final items = s.docs.map(AppProduct.fromDoc).toList();
+        final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+        final visible = visibleDocs.map(AppProduct.fromDoc).toList();
         // _applyVipSorting also sorts newest first within rank.
-        return _applyVipSorting(items);
+        return _applyVipSorting(visible);
       },
     );
   }
-
-  Stream<List<AppProduct>> _mergeTwoProductStreams({
-    required Stream<List<AppProduct>> a,
-    required Stream<List<AppProduct>> b,
-    required int limit,
-  }) {
-    final controller = StreamController<List<AppProduct>>();
-
-    List<AppProduct> lastA = const <AppProduct>[];
-    List<AppProduct> lastB = const <AppProduct>[];
-
-    void emit() {
-      final byId = <String, AppProduct>{};
-      for (final p in lastA) {
-        byId[p.id] = p;
-      }
-      for (final p in lastB) {
-        byId[p.id] = p;
-      }
-
-      final merged = byId.values.toList();
-      final sorted = _applyVipSorting(merged);
-      controller.add(sorted.take(limit).toList());
-    }
-
-    StreamSubscription<List<AppProduct>>? subA;
-    StreamSubscription<List<AppProduct>>? subB;
-
-    subA = a.listen(
-      (v) {
-        lastA = v;
-        emit();
-      },
-      onError: (e, st) => controller.addError(e, st),
-    );
-
-    subB = b.listen(
-      (v) {
-        lastB = v;
-        emit();
-      },
-      onError: (e, st) => controller.addError(e, st),
-    );
-
-    controller.onCancel = () async {
-      await subA?.cancel();
-      await subB?.cancel();
-    };
-
-    return controller.stream;
-  }
-
 
   Stream<List<AppProduct>> watchSearch(
     String query, {
@@ -615,9 +535,8 @@ class ProductsRepository {
     final isPhoneQuery = tail8 != null && _looksLikePhoneQuery(q);
 
     if (isPhoneQuery) {
-      Query<Map<String, dynamic>> ref = _col
-          .where('status', isEqualTo: 'active')
-          .where('isHidden', isEqualTo: false);
+      Query<Map<String, dynamic>> ref =
+          _col.where('status', isEqualTo: 'active');
 
       if (categoryId != null && categoryId.trim().isNotEmpty) {
         // Optional: keep category filter even for phone search.
@@ -631,16 +550,15 @@ class ProductsRepository {
           .limit(limit);
 
       // Fallback: scan a slice of active listings and filter locally by phone tail.
-      final fallback = _col
-          .where('status', isEqualTo: 'active')
-          .where('isHidden', isEqualTo: false)
-          .limit(limit * 5);
+      final fallback =
+          _col.where('status', isEqualTo: 'active').limit(limit * 5);
 
       return _watchWithFallback(
         primary: preferIndexedQueries ? primary : fallback,
         fallback: fallback,
         mapper: (s) {
-          var items = s.docs.map(AppProduct.fromDoc).toList();
+          final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+          var items = visibleDocs.map(AppProduct.fromDoc).toList();
 
           if (categoryId != null && categoryId.trim().isNotEmpty) {
             final c = categoryId.trim();
@@ -664,9 +582,7 @@ class ProductsRepository {
     // Firestore arrayContainsAny supports up to 10 values.
     final tokens = maQueryTokens(q, maxTokens: 10);
 
-    Query<Map<String, dynamic>> ref = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false);
+    Query<Map<String, dynamic>> ref = _col.where('status', isEqualTo: 'active');
 
     if (categoryId != null && categoryId.trim().isNotEmpty) {
       // Stored field name is `category` in this project.
@@ -683,16 +599,14 @@ class ProductsRepository {
 
     // Fallback: fetch a slice of active feed and filter locally.
     // (This avoids missing-index errors, at the cost of precision/perf.)
-    final fallback = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .limit(limit * 3);
+    final fallback = _col.where('status', isEqualTo: 'active').limit(limit * 3);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
-        var items = s.docs.map(AppProduct.fromDoc).toList();
+        final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+        var items = visibleDocs.map(AppProduct.fromDoc).toList();
 
         if (categoryId != null && categoryId.trim().isNotEmpty) {
           final c = categoryId.trim();
