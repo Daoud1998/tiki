@@ -19,6 +19,7 @@ import '../../../app/localization/l10n.dart';
 import '../../../core/data/ma_catalog.dart';
 import '../../../core/mocks/promo_moderation.dart';
 import 'package:tiki/features/product/domain/app_product.dart';
+import 'package:tiki/features/product/data/products_repository.dart';
 import 'package:tiki/features/product/state/products_providers.dart';
 import '../../../core/storage/local_store.dart';
 import '../../../core/state/auth_state.dart';
@@ -47,6 +48,16 @@ final homeScrollControllerProvider = Provider<ScrollController>((ref) {
   ref.onDispose(c.dispose);
   return c;
 });
+
+/// Public products feed shown on Home.
+/// NOTE: This feed is intentionally NOT tied to the signed-in user.
+/// Guests should see the same marketplace feed.
+final homeProductsFeedProvider =
+    StreamProvider.autoDispose<List<AppProduct>>((ref) {
+  final repo = ref.read(productsRepositoryProvider);
+  return repo.watchActiveFeed(limit: 50);
+});
+
 
 // --- Promo Ads (Firestore) ---
 //
@@ -524,7 +535,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     bool scrollToTop = false,
   }) async {
     // Force re-fetch (stream re-subscribe)
-    ref.invalidate(productsFeedProvider);
+    ref.invalidate(homeProductsFeedProvider);
 
     // A tiny delay gives a "real fetch" feel, even in mock mode.
     await Future<void>.delayed(const Duration(milliseconds: 320));
@@ -566,7 +577,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // React to external Home-refresh taps.
     ref.listen<int>(homeRefreshTickProvider, (prev, next) {
       if (prev == next) return;
-      ref.invalidate(productsFeedProvider);
+      ref.invalidate(homeProductsFeedProvider);
     });
     // Rebuild when refresh tick changes.
     ref.watch(homeRefreshTickProvider);
@@ -579,7 +590,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final locale = Localizations.localeOf(context);
 
     // Firestore feed (A2)
-    final feedAsync = ref.watch(productsFeedProvider);    // --- Boot/loading gate (Temu-style) ---
+    final feedAsync = ref.watch(homeProductsFeedProvider);    // --- Boot/loading gate (Temu-style) ---
     // Keep the user on a lightweight loader until the feed emits its first value.
     final data = feedAsync.asData?.value;
     final hasData = data != null;

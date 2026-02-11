@@ -505,14 +505,38 @@ class ProductsRepository {
   }
 
   Stream<List<AppProduct>> watchActiveFeed({int limit = 50}) {
+    // Legacy support:
+    // - Some older products may not have `isHidden` set at all.
+    //   Firestore allows querying `isHidden == null` which matches documents where
+    //   the field is missing or explicitly null.
+    //
+    // We therefore merge:
+    //   1) status=active AND isHidden=false
+    //   2) status=active AND isHidden==null (missing)
+    final visibleFalse = _watchActiveByHiddenValue(isHiddenValue: false, limit: limit);
+    final visibleMissing =
+        _watchActiveByHiddenValue(isHiddenValue: null, limit: limit);
+
+    return _mergeTwoProductStreams(
+      a: visibleFalse,
+      b: visibleMissing,
+      limit: limit,
+    );
+  }
+
+  Stream<List<AppProduct>> _watchActiveByHiddenValue({
+    required Object? isHiddenValue,
+    required int limit,
+  }) {
     final primary = _col
         .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
+        .where('isHidden', isEqualTo: isHiddenValue)
         .orderBy('publishedAt', descending: true)
         .limit(limit);
+
     final fallback = _col
         .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
+        .where('isHidden', isEqualTo: isHiddenValue)
         .limit(limit);
 
     return _watchWithFallback(
@@ -525,6 +549,58 @@ class ProductsRepository {
       },
     );
   }
+
+  Stream<List<AppProduct>> _mergeTwoProductStreams({
+    required Stream<List<AppProduct>> a,
+    required Stream<List<AppProduct>> b,
+    required int limit,
+  }) {
+    final controller = StreamController<List<AppProduct>>();
+
+    List<AppProduct> lastA = const <AppProduct>[];
+    List<AppProduct> lastB = const <AppProduct>[];
+
+    void emit() {
+      final byId = <String, AppProduct>{};
+      for (final p in lastA) {
+        byId[p.id] = p;
+      }
+      for (final p in lastB) {
+        byId[p.id] = p;
+      }
+
+      final merged = byId.values.toList();
+      final sorted = _applyVipSorting(merged);
+      controller.add(sorted.take(limit).toList());
+    }
+
+    StreamSubscription<List<AppProduct>>? subA;
+    StreamSubscription<List<AppProduct>>? subB;
+
+    subA = a.listen(
+      (v) {
+        lastA = v;
+        emit();
+      },
+      onError: (e, st) => controller.addError(e, st),
+    );
+
+    subB = b.listen(
+      (v) {
+        lastB = v;
+        emit();
+      },
+      onError: (e, st) => controller.addError(e, st),
+    );
+
+    controller.onCancel = () async {
+      await subA?.cancel();
+      await subB?.cancel();
+    };
+
+    return controller.stream;
+  }
+
 
   Stream<List<AppProduct>> watchSearch(
     String query, {
