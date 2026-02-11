@@ -34,6 +34,21 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
     );
   }
 
+  String _errText(String? code) {
+    switch (code) {
+      case 'weak_password':
+        return 'كلمة المرور ضعيفة';
+      case 'requires_recent_login':
+        return 'أعد التحقق برمز OTP ثم حاول مرة أخرى';
+      case 'not_supported':
+        return 'هذا الحساب لا يدعم كلمة مرور للهاتف';
+      case 'network':
+        return 'تحقق من الإنترنت';
+      default:
+        return 'تعذر تغيير كلمة المرور';
+    }
+  }
+
   Future<void> _submit() async {
     final p1 = _pass1.text.trim();
     final p2 = _pass2.text.trim();
@@ -62,7 +77,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       if (!mounted) return;
 
       if (res is AuthOpResult && !res.ok) {
-        _toast(res.message ?? 'تعذر تغيير كلمة المرور');
+        _toast(_errText(res.message));
         return;
       }
 

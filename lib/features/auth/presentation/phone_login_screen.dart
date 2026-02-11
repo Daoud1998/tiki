@@ -43,7 +43,8 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
   bool _loginUsePassword = true; // password-only login (OTP only for reset)
 
   // Login mode: OTP by default, password only if enabled for this phone.
-  bool _usePassword = false;
+  // Requested UX: password-only login. OTP is used only for "Forgot password".
+  bool _usePassword = true;
   bool _passwordEligible = false;
   Timer? _pwCheckDebounce;
 
@@ -356,6 +357,49 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     }
   }
 
+  String _passwordErrorText(String? key) {
+    switch (key) {
+      case 'wrong_password':
+        return tr(
+            ar: 'كلمة المرور غير صحيحة',
+            fr: 'Mot de passe incorrect',
+            en: 'Wrong password');
+      case 'user_not_found':
+        return tr(
+            ar: 'لا يوجد حساب لهذا الرقم',
+            fr: 'Aucun compte pour ce numéro',
+            en: 'No account for this number');
+      case 'invalid_phone':
+        return tr(
+            ar: 'رقم غير صحيح', fr: 'Numéro invalide', en: 'Invalid number');
+      case 'weak_password':
+        return tr(
+            ar: 'كلمة المرور ضعيفة',
+            fr: 'Mot de passe faible',
+            en: 'Weak password');
+      case 'email_in_use':
+        return tr(
+            ar: 'هذا الرقم مرتبط بحساب آخر',
+            fr: 'Ce numéro est déjà utilisé',
+            en: 'Number already used');
+      case 'account_exists_with_different_credential':
+        return tr(
+            ar: 'الحساب موجود بطريقة دخول مختلفة',
+            fr: 'Compte déjà existant',
+            en: 'Account exists with different credential');
+      case 'network':
+        return tr(
+            ar: 'تحقق من الإنترنت',
+            fr: 'Vérifiez Internet',
+            en: 'Check internet');
+      default:
+        return tr(
+            ar: 'فشل تسجيل الدخول',
+            fr: 'Échec de connexion',
+            en: 'Login failed');
+    }
+  }
+
   Future<String?> _askOtpDialog({required String channel}) async {
     String otp = '';
     final viaWhatsApp = channel == 'whatsapp';
@@ -513,7 +557,8 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
         if (mounted)
           setState(() {
             _passwordEligible = false;
-            _usePassword = false;
+            // Keep password login as the only login method.
+            _usePassword = true;
           });
         return;
       }
@@ -531,13 +576,15 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
         if (!mounted) return;
         setState(() {
           _passwordEligible = eligible;
-          if (!eligible) _usePassword = false;
+          // Keep password login as the only login method.
+          _usePassword = true;
         });
       } catch (_) {
         if (!mounted) return;
         setState(() {
           _passwordEligible = false;
-          _usePassword = false;
+          // Keep password login as the only login method.
+          _usePassword = true;
         });
       }
     });
@@ -655,11 +702,7 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
       if (res is AuthOpResult) {
         if (!res.ok) {
-          _toast(res.message ??
-              tr(
-                  ar: 'فشل تسجيل الدخول',
-                  fr: 'Échec de connexion',
-                  en: 'Login failed'));
+          _toast(_passwordErrorText(res.message));
           return;
         }
         await _goNext();
@@ -683,7 +726,7 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
           en: 'Phone+password not configured. Use OTP.',
         ),
         actionLabel: tr(ar: 'OTP', fr: 'OTP', en: 'OTP'),
-        onAction: () => _loginWithWhatsAppOtp(),
+        onAction: () => _loginWithPhoneOtp(),
       );
     } catch (e) {
       debugPrint('loginWithPassword failed: $e');
@@ -976,10 +1019,7 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
         ),
         const SizedBox(height: 10),
         FilledButton(
-          onPressed: _busy
-              ? null
-              : () => _toast(tr(
-                  ar: 'Apple قريبًا', fr: 'Apple bientôt', en: 'Apple soon')),
+          onPressed: _busy ? null : () => _thirdParty(AuthProviderKind.apple),
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(50),
             shape:
@@ -1056,35 +1096,16 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
           const SizedBox(height: 10),
 
-// Login method: OTP (default) or Password (only if enabled for this phone)
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _busy ? null : () => _togglePasswordMode(false),
-                  child: Text(tr(ar: 'رمز SMS', fr: 'SMS', en: 'SMS code')),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: (_busy || !_passwordEligible)
-                      ? null
-                      : () => _togglePasswordMode(true),
-                  child: Text(
-                      tr(ar: 'كلمة مرور', fr: 'Mot de passe', en: 'Password')),
-                ),
-              ),
-            ],
-          ),
+          // Password-only login. If this phone doesn't have a password yet,
+          // the user can set one via "Forgot password" (OTP verification).
           if (!_passwordEligible)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 2, bottom: 8),
               child: Text(
                 tr(
-                  ar: 'لا توجد كلمة مرور لهذا الرقم. استخدم رمز SMS.',
-                  fr: "Aucun mot de passe pour ce numéro. Utilisez le SMS.",
-                  en: 'No password for this number. Use SMS code.',
+                  ar: 'لا توجد كلمة مرور لهذا الرقم. اضغط «نسيت كلمة المرور؟» لتعيين كلمة مرور عبر OTP.',
+                  fr: "Aucun mot de passe pour ce numéro. Appuyez sur «Mot de passe oublié ?» pour en définir un via OTP.",
+                  en: 'No password for this number. Tap “Forgot password?” to set one via OTP.',
                 ),
                 style: TextStyle(
                     color: cs.onSurface.withOpacity(0.65), fontSize: 12),
@@ -1092,41 +1113,36 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
               ),
             ),
 
-          if (_usePassword) ...[
-            const SizedBox(height: 10),
-            TextField(
-              controller: _loginPassCtl,
-              obscureText: _loginPassObscure,
-              decoration: _fieldDeco(
-                cs,
-                hint: tr(ar: 'كلمة المرور', fr: 'Mot de passe', en: 'Password'),
-                icon: Icons.lock,
-                suffix: IconButton(
-                  onPressed: () =>
-                      setState(() => _loginPassObscure = !_loginPassObscure),
-                  icon: Icon(_loginPassObscure
-                      ? Icons.visibility
-                      : Icons.visibility_off),
-                ),
+          TextField(
+            controller: _loginPassCtl,
+            obscureText: _loginPassObscure,
+            decoration: _fieldDeco(
+              cs,
+              hint: tr(ar: 'كلمة المرور', fr: 'Mot de passe', en: 'Password'),
+              icon: Icons.lock,
+              suffix: IconButton(
+                onPressed: () =>
+                    setState(() => _loginPassObscure = !_loginPassObscure),
+                icon: Icon(_loginPassObscure
+                    ? Icons.visibility
+                    : Icons.visibility_off),
               ),
             ),
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: TextButton(
-                onPressed: _busy ? null : _forgotPasswordWithOtp,
-                child: Text(tr(
-                    ar: 'نسيت كلمة المرور؟',
-                    fr: 'Mot de passe oublié ?',
-                    en: 'Forgot password?')),
-              ),
+          ),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton(
+              onPressed: _busy ? null : _forgotPasswordWithOtp,
+              child: Text(tr(
+                  ar: 'نسيت كلمة المرور؟',
+                  fr: 'Mot de passe oublié ?',
+                  en: 'Forgot password?')),
             ),
-          ],
+          ),
 
           const SizedBox(height: 4),
           FilledButton(
-            onPressed: _busy
-                ? null
-                : (_usePassword ? _loginWithPassword : _loginWithWhatsAppOtp),
+            onPressed: _busy ? null : _loginWithPassword,
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
@@ -1146,16 +1162,6 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
           _socialButtons(cs),
           const SizedBox(height: 14),
           _bottomSwitch(isLogin: true),
-          const SizedBox(height: 8),
-          Center(
-            child: TextButton(
-              onPressed: _busy ? null : _loginWithPhoneOtp,
-              child: Text(tr(
-                  ar: 'الدخول عبر OTP (SMS)',
-                  fr: 'Connexion OTP (SMS)',
-                  en: 'OTP login (SMS)')),
-            ),
-          ),
         ],
       ),
     );

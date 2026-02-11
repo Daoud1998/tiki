@@ -5,13 +5,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../storage/local_store.dart';
 
-enum AuthProviderKind { local, google, facebook, tiktok, whatsapp }
+enum AuthProviderKind { local, google, apple, facebook, tiktok, whatsapp }
 
 enum AuthStatus { loading, guest, signedIn }
 
@@ -128,6 +129,7 @@ class AuthController extends StateNotifier<AuthState> {
     // We'll keep "local" as the safe default.
     final providers = u.providerData.map((e) => e.providerId).toList();
     if (providers.contains('google.com')) return AuthProviderKind.google;
+    if (providers.contains('apple.com')) return AuthProviderKind.apple;
     if (providers.contains('facebook.com')) return AuthProviderKind.facebook;
     if (providers.contains('phone')) return AuthProviderKind.local;
     return AuthProviderKind.local;
@@ -199,6 +201,8 @@ class AuthController extends StateNotifier<AuthState> {
           return 'user_not_found';
         case 'invalid-credential':
           return 'wrong_password';
+        case 'account-exists-with-different-credential':
+          return 'account_exists_with_different_credential';
         case 'email-already-in-use':
           return 'email_in_use';
         case 'weak-password':
@@ -368,7 +372,11 @@ class AuthController extends StateNotifier<AuthState> {
       if (dn.isNotEmpty) {
         await u.updateDisplayName(dn);
       }
-      await _ensureUserDoc(user: u, displayName: dn, email: email, phoneE164Override: _normalizePhone(phoneE164));
+      await _ensureUserDoc(
+          user: u,
+          displayName: dn,
+          email: email,
+          phoneE164Override: _normalizePhone(phoneE164));
       return const AuthOpResult.ok();
     } catch (e) {
       return AuthOpResult.fail(_mapFirebaseError(e));
@@ -405,7 +413,6 @@ class AuthController extends StateNotifier<AuthState> {
     return const AuthOpResult.fail('whatsapp_soon');
   }
 
-  
   // ---------------------------------------------------------------------------
   // Phone + Password (implemented via hidden Email/Password on a pseudo email)
   // ---------------------------------------------------------------------------
@@ -418,7 +425,8 @@ class AuthController extends StateNotifier<AuthState> {
   }) async {
     final p = _normalizePhone(phoneE164);
     if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
-    if (password.trim().isEmpty) return const AuthOpResult.fail('empty_password');
+    if (password.trim().isEmpty)
+      return const AuthOpResult.fail('empty_password');
 
     final email = _pseudoEmailForPhone(p);
 
@@ -431,6 +439,10 @@ class AuthController extends StateNotifier<AuthState> {
       final u = res.user;
       if (u != null) {
         await _ensureUserDoc(user: u, phoneE164Override: p);
+        await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
+          'hasPassword': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
       return const AuthOpResult.ok();
     } catch (e) {
@@ -460,14 +472,84 @@ class AuthController extends StateNotifier<AuthState> {
       await u.linkWithCredential(cred);
 
       await _ensureUserDoc(user: u, phoneE164Override: p);
+      await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
+        'hasPassword': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       return const AuthOpResult.ok();
     } catch (e) {
       if (e is fb.FirebaseAuthException) {
         // Treat already-linked as success.
         if (e.code == 'provider-already-linked') {
           await _ensureUserDoc(user: u, phoneE164Override: p);
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
+            'hasPassword': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
           return const AuthOpResult.ok();
         }
+      }
+      return AuthOpResult.fail(_mapFirebaseError(e));
+    }
+  }
+
+  /// Reset or set password after verifying phone OTP.
+  ///
+  /// Flow: requestPhoneOtp -> signInWithOtp -> setPhonePasswordAfterOtp
+  Future<AuthOpResult> setPhonePasswordAfterOtp({
+    required String phoneE164,
+    required String newPassword,
+  }) async {
+    final u = fb.FirebaseAuth.instance.currentUser;
+    if (u == null) return const AuthOpResult.fail('not_signed_in');
+
+    final p = _normalizePhone(phoneE164);
+    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
+
+    final pw = newPassword.trim();
+    if (pw.isEmpty) return const AuthOpResult.fail('empty_password');
+
+    final hasRealEmail =
+        !_isPseudoEmail(u.email) && (u.email ?? '').trim().isNotEmpty;
+    final hasPasswordProvider =
+        u.providerData.any((p) => p.providerId == 'password');
+
+    // If the account already has a real email (Google/Apple), we avoid attaching a pseudo email
+    // to prevent overwriting the primary email in Firebase Auth.
+    if (hasRealEmail && !hasPasswordProvider) {
+      return const AuthOpResult.fail('not_supported');
+    }
+
+    try {
+      if (hasPasswordProvider) {
+        await u.updatePassword(pw);
+      } else {
+        final email = _pseudoEmailForPhone(p);
+        final cred =
+            fb.EmailAuthProvider.credential(email: email, password: pw);
+        await u.linkWithCredential(cred);
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
+        'hasPassword': true,
+        'phoneE164': p,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      return const AuthOpResult.ok();
+    } catch (e) {
+      // If already linked, try update password as a fallback
+      if (e is fb.FirebaseAuthException &&
+          e.code == 'provider-already-linked') {
+        try {
+          await u.updatePassword(pw);
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
+            'hasPassword': true,
+            'phoneE164': p,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+          return const AuthOpResult.ok();
+        } catch (_) {}
       }
       return AuthOpResult.fail(_mapFirebaseError(e));
     }
@@ -477,32 +559,32 @@ class AuthController extends StateNotifier<AuthState> {
   // Third-party mock + profile
   // ---------------------------------------------------------------------------
 
+  String? _extractFacebookToken(dynamic accessToken) {
+    if (accessToken == null) return null;
 
-
-String? _extractFacebookToken(dynamic accessToken) {
-  if (accessToken == null) return null;
-
-  // flutter_facebook_auth changed token field names across versions.
-  // Support both `.tokenString` (newer) and `.token` (older) without
-  // pinning the package version.
-  try {
-    final v = accessToken.tokenString;
-    if (v is String && v.trim().isNotEmpty) return v.trim();
-  } catch (_) {}
-  try {
-    final v = accessToken.token;
-    if (v is String && v.trim().isNotEmpty) return v.trim();
-  } catch (_) {}
-  try {
-    final m = accessToken.toJson();
-    if (m is Map) {
-      final v = m['tokenString'] ?? m['token'];
+    // flutter_facebook_auth changed token field names across versions.
+    // Support both `.tokenString` (newer) and `.token` (older) without
+    // pinning the package version.
+    try {
+      final v = accessToken.tokenString;
       if (v is String && v.trim().isNotEmpty) return v.trim();
-    }
-  } catch (_) {}
+    } catch (_) {}
+    try {
+      final v = accessToken.token;
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    } catch (_) {}
+    try {
+      final m = accessToken.toJson();
+      if (m is Map) {
+        final v = m['tokenString'] ?? m['token'];
+        if (v is String && v.trim().isNotEmpty) return v.trim();
+      }
+    } catch (_) {}
 
-  return null;
-}  Future<AuthOpResult> signInThirdPartyMock({
+    return null;
+  }
+
+  Future<AuthOpResult> signInThirdPartyMock({
     required AuthProviderKind provider,
     required String displayName,
   }) async {
@@ -526,6 +608,37 @@ String? _extractFacebookToken(dynamic accessToken) {
           }
           return const AuthOpResult.ok();
 
+        case AuthProviderKind.apple:
+          final apple = await SignInWithApple.getAppleIDCredential(
+            scopes: const [
+              AppleIDAuthorizationScopes.email,
+              AppleIDAuthorizationScopes.fullName,
+            ],
+          );
+
+          final oauth = fb.OAuthProvider('apple.com');
+          final cred = oauth.credential(
+            idToken: apple.identityToken,
+            accessToken: apple.authorizationCode,
+          );
+
+          final res = await fb.FirebaseAuth.instance.signInWithCredential(cred);
+          final u = res.user;
+          if (u != null) {
+            final fullName = [apple.givenName, apple.familyName]
+                .where((e) => (e ?? '').trim().isNotEmpty)
+                .map((e) => e!.trim())
+                .join(' ');
+            if (fullName.isNotEmpty && (u.displayName ?? '').trim().isEmpty) {
+              await u.updateDisplayName(fullName);
+            }
+            await _ensureUserDoc(
+                user: u,
+                displayName: fullName.isEmpty ? null : fullName,
+                email: apple.email);
+          }
+          return const AuthOpResult.ok();
+
         case AuthProviderKind.facebook:
           final loginRes = await FacebookAuth.instance.login();
           if (loginRes.status != LoginStatus.success) {
@@ -536,7 +649,8 @@ String? _extractFacebookToken(dynamic accessToken) {
           }
 
           final accessToken = loginRes.accessToken;
-          if (accessToken == null) return const AuthOpResult.fail('oauth_failed');
+          if (accessToken == null)
+            return const AuthOpResult.fail('oauth_failed');
 
           final token = _extractFacebookToken(accessToken);
           if (token == null) return const AuthOpResult.fail('oauth_failed');
