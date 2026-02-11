@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -169,6 +171,22 @@ class AuthController extends StateNotifier<AuthState> {
   bool _isPseudoEmail(String? email) {
     final em = (email ?? '').trim().toLowerCase();
     return em.endsWith('@tiki.phone');
+  }
+
+  String _generateNonce([int length = 32]) {
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final rand = Random.secure();
+    return List.generate(
+      length,
+      (_) => charset[rand.nextInt(charset.length)],
+    ).join();
+  }
+
+  String _sha256OfString(String input) {
+    final bytes = utf8.encode(input);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
   }
 
   String _pseudoEmailForPhone(String phoneE164) {
@@ -609,35 +627,60 @@ class AuthController extends StateNotifier<AuthState> {
           return const AuthOpResult.ok();
 
         case AuthProviderKind.apple:
-          final apple = await SignInWithApple.getAppleIDCredential(
-            scopes: const [
-              AppleIDAuthorizationScopes.email,
-              AppleIDAuthorizationScopes.fullName,
-            ],
-          );
-
-          final oauth = fb.OAuthProvider('apple.com');
-          final cred = oauth.credential(
-            idToken: apple.identityToken,
-            accessToken: apple.authorizationCode,
-          );
-
-          final res = await fb.FirebaseAuth.instance.signInWithCredential(cred);
-          final u = res.user;
-          if (u != null) {
-            final fullName = [apple.givenName, apple.familyName]
-                .where((e) => (e ?? '').trim().isNotEmpty)
-                .map((e) => e!.trim())
-                .join(' ');
-            if (fullName.isNotEmpty && (u.displayName ?? '').trim().isEmpty) {
-              await u.updateDisplayName(fullName);
+          // Recommended by Firebase: use a per-request nonce to prevent replay attacks.
+          // Apple expects the SHA256(nonce) in the request, while Firebase verifies using rawNonce.
+          try {
+            if (!await SignInWithApple.isAvailable()) {
+              return const AuthOpResult.fail('not_supported');
             }
-            await _ensureUserDoc(
+
+            final rawNonce = _generateNonce();
+            final nonce = _sha256OfString(rawNonce);
+
+            final apple = await SignInWithApple.getAppleIDCredential(
+              scopes: const [
+                AppleIDAuthorizationScopes.email,
+                AppleIDAuthorizationScopes.fullName,
+              ],
+              nonce: nonce,
+            );
+
+            final idToken = apple.identityToken;
+            if (idToken == null || idToken.isEmpty) {
+              return const AuthOpResult.fail('oauth_failed');
+            }
+
+            final oauth = fb.OAuthProvider('apple.com');
+            final cred = oauth.credential(
+              idToken: idToken,
+              accessToken: apple.authorizationCode,
+              rawNonce: rawNonce,
+            );
+
+            final res =
+                await fb.FirebaseAuth.instance.signInWithCredential(cred);
+            final u = res.user;
+            if (u != null) {
+              final fullName = [apple.givenName, apple.familyName]
+                  .where((e) => (e ?? '').trim().isNotEmpty)
+                  .map((e) => e!.trim())
+                  .join(' ');
+              if (fullName.isNotEmpty && (u.displayName ?? '').trim().isEmpty) {
+                await u.updateDisplayName(fullName);
+              }
+              await _ensureUserDoc(
                 user: u,
                 displayName: fullName.isEmpty ? null : fullName,
-                email: apple.email);
+                email: apple.email,
+              );
+            }
+            return const AuthOpResult.ok();
+          } on SignInWithAppleAuthorizationException catch (e) {
+            if (e.code == AuthorizationErrorCode.canceled) {
+              return const AuthOpResult.fail('cancelled');
+            }
+            return const AuthOpResult.fail('oauth_failed');
           }
-          return const AuthOpResult.ok();
 
         case AuthProviderKind.facebook:
           final loginRes = await FacebookAuth.instance.login();

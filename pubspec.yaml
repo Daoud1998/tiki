@@ -2,7 +2,7 @@ name: tiki
 description: "TIKI marketplace (mock UI + structure)"
 publish_to: "none"
 
-version: 0.1.0+4
+version: 0.1.0+5
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -12,6 +12,8 @@ dependencies:
   printing: ^5.12.0
   flutter:
     sdk: flutter
+
+  crypto: ^3.0.3
 
   firebase_messaging: ^16.0.0
 
