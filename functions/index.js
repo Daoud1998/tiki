@@ -168,18 +168,17 @@ exports.createProduct = functions
     }
 
     // Enforce limits
+    let limitReached = false;
     if (!isVerified) {
       if (unverifiedDailyLimit > 0 && dailyCount >= unverifiedDailyLimit) {
         throw new HttpsError('resource-exhausted', 'DAILY_LIMIT_REACHED', {
           reason: 'daily',
           dailyLimit: unverifiedDailyLimit,
-  });
+        });
       }
       if (unverifiedMaxActive > 0 && activeCount >= unverifiedMaxActive) {
-        throw new HttpsError('resource-exhausted', 'ACTIVE_LIMIT_REACHED', {
-          reason: 'max_active',
-          maxActive: unverifiedMaxActive,
-        });
+        // NEW: allow publishing, but send to review instead of blocking.
+        limitReached = true;
       }
     } else if (verifiedMaxActive > 0 && activeCount >= verifiedMaxActive) {
       throw new HttpsError('resource-exhausted', 'ACTIVE_LIMIT_REACHED', {
@@ -193,7 +192,8 @@ exports.createProduct = functions
       (typeof payloadData.category === 'string' && payloadData.category.trim()) ||
       '';
 
-    const needsReview = !isVerified && categoryId && fastCats.includes(categoryId);
+    const categoryNeedsReview = !isVerified && categoryId && fastCats.includes(categoryId);
+    const needsReview = categoryNeedsReview || (!isVerified && limitReached);
     const status = needsReview ? 'pending' : 'active';
 
     const requestedId =
@@ -256,7 +256,7 @@ exports.createProduct = functions
       { merge: true },
     );
 
-    return { productId: docRef.id, status };
+    return { productId: docRef.id, status, needsReview, limitReached, reviewStatus: out.reviewStatus };
   });
 });
 

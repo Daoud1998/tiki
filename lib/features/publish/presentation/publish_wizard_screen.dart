@@ -243,28 +243,40 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
     if (!decision.required) return true;
     if (!mounted) return false;
 
-    final go = await showDialog<bool>(
+    // New behavior: allow publishing, but the listing may go "pending" for review.
+    // Offer the user to verify for instant publishing.
+    final choice = await showDialog<String>(
           context: context,
           builder: (ctx) {
             return AlertDialog(
               title: Text(_tr(
-                ar: 'التوثيق مطلوب',
-                fr: 'Vérification requise',
-                en: 'Verification required',
+                ar: 'الحساب غير موثّق',
+                fr: 'Compte non vérifié',
+                en: 'Unverified account',
               )),
               content: Text(_tr(
-                ar: 'لا يمكنك نشر هذا الإعلان قبل توثيق الحساب. يمكنك حفظه كمسودة والرجوع لاحقاً.',
-                fr: "Vous ne pouvez pas publier avant de vérifier votre compte. Vous pouvez enregistrer en brouillon et revenir plus tard.",
-                en: 'You cannot publish before verifying your account. You can keep it as a draft and come back later.',
+                ar: '''يمكنك نشر الإعلان الآن، لكن سيتم إرساله للمراجعة ولن يظهر للناس حتى تتم الموافقة عليه من الإدارة.
+وثّق حسابك ليتم نشر إعلاناتك مباشرة بدون مراجعة.''',
+                fr: '''Vous pouvez publier maintenant, mais l'annonce sera envoyée en validation et ne sera visible qu'après approbation.
+Vérifiez votre compte pour publier instantanément.''',
+                en: '''You can publish now, but your listing will be sent for review and won't be visible until approved.
+Verify your account to publish instantly.''',
               )),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child:
-                      Text(_tr(ar: 'ليس الآن', fr: 'Plus tard', en: 'Not now')),
+                  onPressed: () => Navigator.of(ctx).pop('cancel'),
+                  child: Text(_tr(ar: 'إلغاء', fr: 'Annuler', en: 'Cancel')),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop('continue'),
+                  child: Text(_tr(
+                    ar: 'متابعة وإرسال للمراجعة',
+                    fr: 'Continuer (validation)',
+                    en: 'Continue (review)',
+                  )),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
+                  onPressed: () => Navigator.of(ctx).pop('verify'),
                   child:
                       Text(_tr(ar: 'توثيق الآن', fr: 'Vérifier', en: 'Verify')),
                 ),
@@ -272,9 +284,10 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
             );
           },
         ) ??
-        false;
+        'cancel';
 
-    if (go && mounted) {
+    if (choice == 'continue') return true;
+    if (choice == 'verify' && mounted) {
       context.push('/you/verify');
     }
     return false;
@@ -2670,13 +2683,19 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
                     : _tr(
                         ar: '''لن يظهر إعلانك للناس حتى يتم التأكد منه.
 عادةً تتم المراجعة خلال 5 دقائق إلى 24 ساعة.
-يمكنك متابعة الحالة من صفحة إعلاناتي.''',
+يمكنك متابعة الحالة من صفحة إعلاناتي.
+
+وثّق حسابك ليُنشر إعلانك القادم مباشرة بدون مراجعة.''',
                         fr: '''Votre annonce ne sera pas visible avant validation.
 Généralement: 5 minutes à 24 heures.
-Vous pouvez suivre l'état dans Mes annonces.''',
+Vous pouvez suivre l'état dans Mes annonces.
+
+Vérifiez votre compte pour publier instantanément la prochaine fois.''',
                         en: '''Your listing won't be visible until it's reviewed.
 Usually 5 minutes to 24 hours.
-You can track it in My listings.''',
+You can track it in My listings.
+
+Verify your account to publish instantly next time.''',
                       ),
               ),
               actions: [
@@ -2708,6 +2727,8 @@ You can track it in My listings.''',
 
     if (action == 'another') {
       await _resetForNewPublish();
+    } else if (action == 'verify') {
+      context.push('/you/verify');
     } else if (action == 'home') {
       final token = DateTime.now().millisecondsSinceEpoch.toString();
       context.go('/home?r=$token');

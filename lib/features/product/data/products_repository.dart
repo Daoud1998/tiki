@@ -482,6 +482,8 @@ class ProductsRepository {
     final primary = _col
         .where('sellerId', isEqualTo: sellerId)
         .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .where('reviewStatus', isEqualTo: 'approved')
         .orderBy('publishedAt', descending: true)
         .limit(limit);
 
@@ -489,6 +491,8 @@ class ProductsRepository {
     final fallback = _col
         .where('sellerId', isEqualTo: sellerId)
         .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .where('reviewStatus', isEqualTo: 'approved')
         .limit(limit);
 
     return _watchWithFallback(
@@ -506,9 +510,15 @@ class ProductsRepository {
   Stream<List<AppProduct>> watchActiveFeed({int limit = 50}) {
     final primary = _col
         .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .where('reviewStatus', isEqualTo: 'approved')
         .orderBy('publishedAt', descending: true)
         .limit(limit);
-    final fallback = _col.where('status', isEqualTo: 'active').limit(limit);
+    final fallback = _col
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .where('reviewStatus', isEqualTo: 'approved')
+        .limit(limit);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
@@ -535,8 +545,10 @@ class ProductsRepository {
     final isPhoneQuery = tail8 != null && _looksLikePhoneQuery(q);
 
     if (isPhoneQuery) {
-      Query<Map<String, dynamic>> ref =
-          _col.where('status', isEqualTo: 'active');
+      Query<Map<String, dynamic>> ref = _col
+          .where('status', isEqualTo: 'active')
+          .where('isHidden', isEqualTo: false)
+          .where('reviewStatus', isEqualTo: 'approved');
 
       if (categoryId != null && categoryId.trim().isNotEmpty) {
         // Optional: keep category filter even for phone search.
@@ -550,8 +562,11 @@ class ProductsRepository {
           .limit(limit);
 
       // Fallback: scan a slice of active listings and filter locally by phone tail.
-      final fallback =
-          _col.where('status', isEqualTo: 'active').limit(limit * 5);
+      final fallback = _col
+          .where('status', isEqualTo: 'active')
+          .where('isHidden', isEqualTo: false)
+          .where('reviewStatus', isEqualTo: 'approved')
+          .limit(limit * 5);
 
       return _watchWithFallback(
         primary: preferIndexedQueries ? primary : fallback,
@@ -582,7 +597,10 @@ class ProductsRepository {
     // Firestore arrayContainsAny supports up to 10 values.
     final tokens = maQueryTokens(q, maxTokens: 10);
 
-    Query<Map<String, dynamic>> ref = _col.where('status', isEqualTo: 'active');
+    Query<Map<String, dynamic>> ref = _col
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .where('reviewStatus', isEqualTo: 'approved');
 
     if (categoryId != null && categoryId.trim().isNotEmpty) {
       // Stored field name is `category` in this project.
@@ -599,7 +617,11 @@ class ProductsRepository {
 
     // Fallback: fetch a slice of active feed and filter locally.
     // (This avoids missing-index errors, at the cost of precision/perf.)
-    final fallback = _col.where('status', isEqualTo: 'active').limit(limit * 3);
+    final fallback = _col
+        .where('status', isEqualTo: 'active')
+        .where('isHidden', isEqualTo: false)
+        .where('reviewStatus', isEqualTo: 'approved')
+        .limit(limit * 3);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
