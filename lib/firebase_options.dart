@@ -60,20 +60,20 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyA6Kyv-eYH7Hlum9K1XiijTg_dDrP6kZ4Q',
-    appId: '1:36657885045:ios:17d013513d84bec9dbed3c',
+    appId: '1:36657885045:ios:29c0bbd964befef5dbed3c',
     messagingSenderId: '36657885045',
     projectId: 'tiki-a9d30',
     storageBucket: 'tiki-a9d30.firebasestorage.app',
-    iosBundleId: 'com.example.tiki',
+    iosBundleId: 'com.tiki.mr',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyA6Kyv-eYH7Hlum9K1XiijTg_dDrP6kZ4Q',
-    appId: '1:36657885045:ios:17d013513d84bec9dbed3c',
+    appId: '1:36657885045:ios:29c0bbd964befef5dbed3c',
     messagingSenderId: '36657885045',
     projectId: 'tiki-a9d30',
     storageBucket: 'tiki-a9d30.firebasestorage.app',
-    iosBundleId: 'com.example.tiki',
+    iosBundleId: 'com.tiki.mr',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -85,5 +85,4 @@ class DefaultFirebaseOptions {
     storageBucket: 'tiki-a9d30.firebasestorage.app',
     measurementId: 'G-SRVBHSF8YN',
   );
-
 }

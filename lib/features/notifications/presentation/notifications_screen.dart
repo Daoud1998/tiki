@@ -61,12 +61,9 @@ class NotificationsScreen extends ConsumerWidget {
                     SnackBar(
                       content: Text(tr(
                         context,
-                        ar:
-                            'تم تفعيل إشعارات داخل التطبيق. إشعارات الهاتف (Push) نضيفها لاحقًا.',
-                        fr:
-                            "Notifications dans l’app activées. Les push viendront plus tard.",
-                        en:
-                            'In-app notifications enabled. Push notifications will be added later.',
+                        ar: 'تم تفعيل إشعارات داخل التطبيق. إشعارات الهاتف (Push) نضيفها لاحقًا.',
+                        fr: "Notifications dans l’app activées. Les push viendront plus tard.",
+                        en: 'In-app notifications enabled. Push notifications will be added later.',
                       )),
                     ),
                   );
@@ -128,10 +125,8 @@ class NotificationsScreen extends ConsumerWidget {
                     subtitle: tr(
                       context,
                       ar: 'سيظهر هنا كل جديد: تخفيضات، تنبيهات، حالة إعلاناتك…',
-                      fr:
-                          'Vous verrez ici les nouveautés: promos, alertes, statut de vos annonces…',
-                      en:
-                          'You’ll see updates here: deals, alerts, your listings status…',
+                      fr: 'Vous verrez ici les nouveautés: promos, alertes, statut de vos annonces…',
+                      en: 'You’ll see updates here: deals, alerts, your listings status…',
                     ),
                   )
                 : ListView.separated(
@@ -152,6 +147,28 @@ class NotificationsScreen extends ConsumerWidget {
                             await controller.markRead(n.id);
 
                             final r = (n.targetRoute ?? '').trim();
+                            String _decorate(String raw) {
+                              try {
+                                final uri = Uri.parse(raw);
+                                final p = uri.path;
+                                final needsFrom = p.startsWith('/product/') ||
+                                    p.startsWith('/promo-ads') ||
+                                    p.startsWith('/seller/');
+                                if (!needsFrom) return raw;
+                                final qp = <String, String>{
+                                  ...uri.queryParameters
+                                };
+                                qp.putIfAbsent('from', () => 'notif');
+                                return uri
+                                    .replace(queryParameters: qp)
+                                    .toString();
+                              } catch (_) {
+                                return raw;
+                              }
+                            }
+
+                            final target = _decorate(r);
+
                             if (r.isEmpty) {
                               await _showNotificationDetails(context, n);
                               return;
@@ -160,8 +177,8 @@ class NotificationsScreen extends ConsumerWidget {
                             try {
                               final go = GoRouter.maybeOf(context);
                               if (go != null) {
-                                // Avoid Navigator key collisions by NOT pushing.
-                                context.go(r);
+                                // Use go_router push so the target screen is on top of Notifications (back works).
+                                context.push(target);
                               } else {
                                 Navigator.of(context).pushNamed(r);
                               }
@@ -171,12 +188,9 @@ class NotificationsScreen extends ConsumerWidget {
                                 SnackBar(
                                   content: Text(tr(
                                     context,
-                                    ar:
-                                        'الوجهة غير مهيأة بعد. اربط routes أو غيّر targetRoute.',
-                                    fr:
-                                        "Destination non configurée. Reliez les routes.",
-                                    en:
-                                        'Destination not configured. Hook up your routes.',
+                                    ar: 'الوجهة غير مهيأة بعد. اربط routes أو غيّر targetRoute.',
+                                    fr: "Destination non configurée. Reliez les routes.",
+                                    en: 'Destination not configured. Hook up your routes.',
                                   )),
                                 ),
                               );
@@ -206,8 +220,8 @@ class _EnableCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: Theme.of(context).dividerColor.withOpacity(0.35)),
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.35)),
       ),
       child: Row(
         children: [
@@ -311,7 +325,8 @@ class _NotificationTile extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon),
@@ -344,8 +359,7 @@ class _NotificationTile extends StatelessWidget {
                               width: 8,
                               height: 8,
                               decoration: const BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle)),
+                                  color: Colors.red, shape: BoxShape.circle)),
                         ],
                       ],
                     ),
@@ -402,10 +416,8 @@ class _TimeText extends StatelessWidget {
 
     return Text(
       text,
-      style: Theme.of(context)
-          .textTheme
-          .labelSmall
-          ?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60)),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60)),
     );
   }
 }

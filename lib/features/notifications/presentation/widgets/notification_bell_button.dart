@@ -17,11 +17,12 @@ class NotificationBellButton extends ConsumerWidget {
     return IconButton(
       tooltip: context.tr('notifications.title'),
       onPressed: () {
-        // Using push can crash with "!keyReservation.contains(key)" when the
-        // same page gets pushed multiple times. Use go() instead.
         final go = GoRouter.maybeOf(context);
         if (go != null) {
-          context.go('/notifications');
+          final loc = go.routerDelegate.currentConfiguration.uri.toString();
+          if (loc.startsWith('/notifications')) return;
+          // Use push so back returns to the previous page (e.g., You/Home).
+          context.push('/notifications');
         } else {
           Navigator.of(context).pushNamed('/notifications');
         }

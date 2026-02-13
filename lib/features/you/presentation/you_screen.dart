@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import 'package:tiki/core/state/auth_state.dart' as auth;
 import 'package:tiki/core/utils/name_utils.dart';
@@ -22,6 +23,27 @@ class YouScreen extends ConsumerStatefulWidget {
 }
 
 class _YouScreenState extends ConsumerState<YouScreen> {
+  /// A single "smart" link that should redirect to the correct store
+  /// (App Store / Play Store) based on the device opening the link.
+  String get _shareLink {
+    final pid = Firebase.app().options.projectId;
+    if (pid.isEmpty) return 'https://tiki.app/download';
+    // Default Firebase Hosting domain:
+    //   https://<projectId>.web.app
+    return 'https://$pid.web.app/download';
+  }
+
+  void _shareApp(BuildContext context) {
+    // iPad requires an origin rect for the popover.
+    final box = context.findRenderObject() as RenderBox?;
+    Share.share(
+      _shareLink,
+      subject: 'TIKI',
+      sharePositionOrigin:
+          box == null ? null : (box.localToGlobal(Offset.zero) & box.size),
+    );
+  }
+
   Future<void> _refresh() async {
     // In mock mode, we just rebuild and refresh light providers.
     ref.invalidate(notificationsUnreadCountProvider);
@@ -89,13 +111,12 @@ class _YouScreenState extends ConsumerState<YouScreen> {
                 ar: 'الإشعارات', fr: 'Notifications', en: 'Notifications'),
             onPressed: () => context.push('/notifications'),
           ),
-          IconButton(
-            tooltip: _tr(context, ar: 'مشاركة', fr: 'Partager', en: 'Share'),
-            onPressed: () {
-              const link = 'https://tiki.app';
-              Share.share(link, subject: 'TIKI');
-            },
-            icon: const Icon(Icons.share_rounded),
+          Builder(
+            builder: (ctx) => IconButton(
+              tooltip: _tr(context, ar: 'مشاركة', fr: 'Partager', en: 'Share'),
+              onPressed: () => _shareApp(ctx),
+              icon: const Icon(Icons.share_rounded),
+            ),
           ),
           IconButton(
             tooltip: _tr(context, ar: 'الدعم', fr: 'Support', en: 'Support'),

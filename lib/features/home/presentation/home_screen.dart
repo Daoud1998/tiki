@@ -58,7 +58,6 @@ final homeProductsFeedProvider =
   return repo.watchActiveFeed(limit: 50);
 });
 
-
 // --- Promo Ads (Firestore) ---
 //
 // Only a limited number of ads show in the moving ticker.
@@ -590,7 +589,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final locale = Localizations.localeOf(context);
 
     // Firestore feed (A2)
-    final feedAsync = ref.watch(homeProductsFeedProvider);    // --- Boot/loading gate (Temu-style) ---
+    final feedAsync = ref.watch(
+        homeProductsFeedProvider); // --- Boot/loading gate (Temu-style) ---
     // Keep the user on a lightweight loader until the feed emits its first value.
     final data = feedAsync.asData?.value;
     final hasData = data != null;
@@ -621,11 +621,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       en: 'Failed to load products',
                     ),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900, fontSize: 16),
                   ),
                   const SizedBox(height: 10),
                   FilledButton(
-                    onPressed: () => _refresh(showHint: false, scrollToTop: false),
+                    onPressed: () =>
+                        _refresh(showHint: false, scrollToTop: false),
                     child: Text(
                       _tr(
                         c: context,
@@ -643,9 +645,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
-    final showBootLoader =
-        !hasData ||
-        (first.isEmpty && (feedAsync.isLoading || inBootGrace) && !feedAsync.hasError);
+    final showBootLoader = !hasData ||
+        (first.isEmpty &&
+            (feedAsync.isLoading || inBootGrace) &&
+            !feedAsync.hasError);
     if (showBootLoader) {
       return Scaffold(
         backgroundColor: const Color(0xFFFFF7F2),
@@ -660,7 +663,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   errorBuilder: (_, __, ___) => Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.shopping_bag_rounded, color: cs.primary, size: 32),
+                      Icon(Icons.shopping_bag_rounded,
+                          color: cs.primary, size: 32),
                       const SizedBox(width: 0),
                       Text(
                         'TIKI',
@@ -692,11 +696,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
-
     // Always show newest first.
-    final all =
-        List<AppProduct>.from(first)
-          ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+    final all = List<AppProduct>.from(first)
+      ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
 
     final qNorm = maNormalizeQuery(_qCtl.text);
     final isSearching = qNorm.isNotEmpty;
@@ -952,7 +954,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           child: Text(
                             _tr(
                               c: context,
-                              ar: 'VIP Top',
+                              ar: 'VIP المميزة',
                               fr: 'VIP Top',
                               en: 'VIP Top',
                             ),
@@ -2086,7 +2088,9 @@ class _PromoItem {
           ? null
           : _asStr(m['promoTxId']).trim(),
       promoWalletId: _asStr(m['promoWalletId']).trim().isEmpty
-          ? (_asStr(m['walletId']).trim().isEmpty ? null : _asStr(m['walletId']).trim())
+          ? (_asStr(m['walletId']).trim().isEmpty
+              ? null
+              : _asStr(m['walletId']).trim())
           : _asStr(m['promoWalletId']).trim(),
       promoReqAtMs: reqAt,
       promoApprAtMs: apprAt,
@@ -2095,7 +2099,7 @@ class _PromoItem {
       ownerUserId: owner.isEmpty ? null : owner,
       targetWilayaId: target.isEmpty ? null : target,
       categoryId: cat.isEmpty ? null : cat,
-      arTitle: arTitle.isEmpty ? 'Ad' : arTitle,
+      arTitle: arTitle.isEmpty ? 'إعلان' : arTitle,
       frTitle: frTitle.isEmpty ? (arTitle.isEmpty ? 'Ad' : arTitle) : frTitle,
       enTitle: enTitle.isEmpty ? (arTitle.isEmpty ? 'Ad' : arTitle) : enTitle,
       arSubtitle: arSubtitle,
@@ -2256,7 +2260,7 @@ class _PromoItem {
     final price = p.price;
     final subtitle = tikkiTr(
       context,
-      ar: 'VIP Top • ${p.wilaya} • ${price} MRU',
+      ar: 'VIP المميزة • ${p.wilaya} • ${price} MRU',
       fr: 'VIP Top • ${p.wilaya} • ${price} MRU',
       en: 'VIP Top • ${p.wilaya} • ${price} MRU',
     );
@@ -3245,7 +3249,7 @@ class _VipTopListScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _tr(context, ar: 'VIP Top', fr: 'VIP Top', en: 'VIP Top'),
+          _tr(context, ar: 'VIP المميزة', fr: 'VIP Top', en: 'VIP Top'),
           style: const TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
@@ -3663,7 +3667,8 @@ class PromoAdsScreen extends ConsumerWidget {
           final pkgs = _vipPkgsFromPlan(plan);
           final countryMult = plan?.countryWideMultiplier ?? 2;
           final extraPct = plan?.multiWilayaExtraPercent ?? 0.20;
-          final capMult = plan?.multiWilayaMaxMultiplier ?? countryMult.toDouble();
+          final capMult =
+              plan?.multiWilayaMaxMultiplier ?? countryMult.toDouble();
 
           final pkg = pkgs.firstWhere(
             (e) => e.id == updated.promoPkgId,
@@ -3672,9 +3677,8 @@ class PromoAdsScreen extends ConsumerWidget {
 
           final scopeIsCountry = _isCountryWideTarget(updated.targetWilayaId);
           final count = _targetWilayaCount(updated.targetWilayaId);
-          final scope = scopeIsCountry
-              ? 'country'
-              : (count > 1 ? 'multi' : 'wilaya');
+          final scope =
+              scopeIsCountry ? 'country' : (count > 1 ? 'multi' : 'wilaya');
 
           final multiplier = scopeIsCountry
               ? countryMult.toDouble()
@@ -4204,8 +4208,10 @@ bool _targetsUserWilaya(String? target, String? myWilayaId) {
   return false;
 }
 
-double _multiWilayaCap(int countryWideMultiplier, double multiWilayaCapMultiplier) {
-  final cw = countryWideMultiplier <= 0 ? 1.0 : countryWideMultiplier.toDouble();
+double _multiWilayaCap(
+    int countryWideMultiplier, double multiWilayaCapMultiplier) {
+  final cw =
+      countryWideMultiplier <= 0 ? 1.0 : countryWideMultiplier.toDouble();
   var cap = multiWilayaCapMultiplier <= 0 ? cw : multiWilayaCapMultiplier;
   if (cap > cw) cap = cw;
   if (cap < 1.0) cap = 1.0;
@@ -4652,8 +4658,8 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
     final vipLocked = widget.initial?.isPromoPending ?? false;
 
     final vipPlan = ref.watch(promoAdsVipPlanProvider).asData?.value;
-    final wallets =
-        ref.watch(paymentWalletsProvider).asData?.value ?? const <PaymentWallet>[];
+    final wallets = ref.watch(paymentWalletsProvider).asData?.value ??
+        const <PaymentWallet>[];
 
     final adVipPkgs = _vipPkgsFromPlan(vipPlan);
     final countryMult = vipPlan?.countryWideMultiplier ?? 2;
@@ -5129,7 +5135,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
             Text(
               tikkiTr(context,
                   ar: 'إعلان ولاية واحدة هو الأرخص. اختر "عدة ولايات" للوصول لمناطق أكثر.',
-                  fr: 'Une wilaya est le moins cher. Choisissez "Plusieurs" pour une portée أكبر.',
+                  fr: 'Une wilaya est la moins chère. Choisissez "Plusieurs" pour une portée plus large.',
                   en: 'One wilaya is cheapest. Pick “Multiple” to reach more areas.'),
               style: TextStyle(
                 fontWeight: FontWeight.w700,
@@ -5350,8 +5356,8 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                       decoration: BoxDecoration(
                         color: cs.surface,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: cs.outlineVariant.withAlpha(170)),
+                        border:
+                            Border.all(color: cs.outlineVariant.withAlpha(170)),
                       ),
                       child: Row(
                         children: [
@@ -5416,8 +5422,8 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                       decoration: BoxDecoration(
                         color: cs.surface,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: cs.outlineVariant.withAlpha(170)),
+                        border:
+                            Border.all(color: cs.outlineVariant.withAlpha(170)),
                       ),
                       child: Row(
                         children: [
@@ -5439,8 +5445,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                                   (selectedWallet?.displayName ?? '').trim(),
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
-                                    color:
-                                        cs.onSurface.withValues(alpha: 0.62),
+                                    color: cs.onSurface.withValues(alpha: 0.62),
                                   ),
                                 ),
                               ],
@@ -5453,7 +5458,8 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                                 ? null
                                 : () async {
                                     await Clipboard.setData(
-                                      ClipboardData(text: selectedWallet!.number),
+                                      ClipboardData(
+                                          text: selectedWallet!.number),
                                     );
                                     if (!mounted) return;
                                     _toast(tikkiTr(context,
@@ -5998,11 +6004,7 @@ class _TikkiSplitBannerState extends ConsumerState<_TikkiSplitBanner> {
       'fr': 'Contacter le vendeur',
       'en': 'Contact seller'
     },
-    {
-      'ar': 'الدفع',
-      'fr': 'Paiement',
-      'en': 'Payments'
-    },
+    {'ar': 'الدفع', 'fr': 'Paiement', 'en': 'Payments'},
     {
       'ar': 'التوصيل و الاستلام',
       'fr': 'Livraison & retrait',

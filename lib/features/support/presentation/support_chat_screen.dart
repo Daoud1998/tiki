@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../app/localization/l10n.dart';
 import '../../../core/data/support_repository.dart';
+import 'package:go_router/go_router.dart';
 
 class SupportChatScreen extends StatefulWidget {
   const SupportChatScreen({super.key});
@@ -15,11 +16,34 @@ class SupportChatScreen extends StatefulWidget {
 }
 
 class _SupportChatScreenState extends State<SupportChatScreen> {
-  final _repo = SupportRepository();
+  late final SupportRepository _repo;
   final _controller = TextEditingController();
   final _scroll = ScrollController();
 
+  bool _authLoading = true;
+  Object? _authError;
+
   int _lastMsgCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser == null) {
+        await auth.signInAnonymously();
+      }
+      _repo = SupportRepository();
+    } catch (e) {
+      _authError = e;
+    } finally {
+      if (mounted) setState(() => _authLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -61,14 +85,86 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
     final cs = Theme.of(context).colorScheme;
     final td = Directionality.of(context);
 
+    if (_authLoading) {
+      return Scaffold(
+        appBar: AppBar(title: Text(context.tr('support.title'))),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_authError != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(context.tr('support.title'))),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.tr('support.login_required'),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    OutlinedButton(
+                      onPressed: _bootstrap,
+                      child: Text(context.tr('common.retry')),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => context.go('/auth'),
+                      child: Text(context.tr('auth.sign_in')),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       return Scaffold(
         appBar: AppBar(title: Text(context.tr('support.title'))),
-        body: Center(child: Text(context.tr('support.login_required'))),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.tr('support.login_required'),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    OutlinedButton(
+                      onPressed: _bootstrap,
+                      child: Text(context.tr('common.retry')),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => context.go('/auth'),
+                      child: Text(context.tr('auth.sign_in')),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 

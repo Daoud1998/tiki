@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -142,6 +144,39 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
     // Otherwise treat as local digits and prepend the selected country code.
     return '$country$digits';
+  }
+
+  String? _normalizeAndValidatePhone(String raw) {
+    final phone = _normalizePhone(raw, country: _country);
+    if (phone.isEmpty) return null;
+
+    final allDigits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final cc = _country.replaceAll('+', '');
+    if (!allDigits.startsWith(cc) || allDigits.length <= cc.length) return null;
+
+    final local = allDigits.substring(cc.length);
+
+    if (_country == '+222') {
+      // Mauritania: exactly 8 national digits.
+      if (local.length != 8) return null;
+    } else {
+      // Generic fallback for other countries.
+      if (local.length < 4) return null;
+      if (allDigits.length > 15) return null; // E.164 max
+    }
+
+    return phone;
+  }
+
+  String _invalidPhoneMsg() {
+    if (_country == '+222') {
+      return tr(
+        ar: 'اكتب رقمًا صحيحًا (8 أرقام) بدون +222',
+        fr: 'Numéro invalide (8 chiffres, sans +222)',
+        en: 'Invalid number (8 digits, without +222)',
+      );
+    }
+    return tr(ar: 'رقم غير صحيح', fr: 'Numéro invalide', en: 'Invalid number');
   }
 
   Future<void> _goNext() async {
@@ -490,10 +525,9 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
   }
 
   Future<void> _loginWithPhoneOtp() async {
-    final phone = _normalizePhone(_loginPhoneCtl.text, country: _country);
-    if (phone.isEmpty || phone.replaceAll(RegExp(r'[^0-9]'), '').length < 8) {
-      _toast(
-          tr(ar: 'رقم غير صحيح', fr: 'Numéro invalide', en: 'Invalid number'));
+    final phone = _normalizeAndValidatePhone(_loginPhoneCtl.text);
+    if (phone == null) {
+      _toast(_invalidPhoneMsg());
       return;
     }
 
@@ -552,14 +586,15 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
   void _onLoginPhoneChanged() {
     _pwCheckDebounce?.cancel();
     _pwCheckDebounce = Timer(const Duration(milliseconds: 450), () async {
-      final phone = _normalizePhone(_loginPhoneCtl.text, country: _country);
-      if (phone.isEmpty) {
-        if (mounted)
+      final phone = _normalizeAndValidatePhone(_loginPhoneCtl.text);
+      if (phone == null) {
+        if (mounted) {
           setState(() {
             _passwordEligible = false;
             // Keep password login as the only login method.
             _usePassword = true;
           });
+        }
         return;
       }
 
@@ -609,10 +644,9 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
   }
 
   Future<void> _forgotPasswordWithOtp() async {
-    final phone = _normalizePhone(_loginPhoneCtl.text, country: _country);
-    if (phone.isEmpty || phone.replaceAll(RegExp(r'[^0-9]'), '').length < 8) {
-      _toast(
-          tr(ar: 'رقم غير صحيح', fr: 'Numéro invalide', en: 'Invalid number'));
+    final phone = _normalizeAndValidatePhone(_loginPhoneCtl.text);
+    if (phone == null) {
+      _toast(_invalidPhoneMsg());
       return;
     }
 
@@ -670,12 +704,11 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
   // ---------------------------------------------------------------------------
 
   Future<void> _loginWithPassword() async {
-    final phone = _normalizePhone(_loginPhoneCtl.text, country: _country);
+    final phone = _normalizeAndValidatePhone(_loginPhoneCtl.text);
     final pass = _loginPassCtl.text;
 
-    if (phone.isEmpty || phone.replaceAll(RegExp(r'[^0-9]'), '').length < 8) {
-      _toast(
-          tr(ar: 'رقم غير صحيح', fr: 'Numéro invalide', en: 'Invalid number'));
+    if (phone == null) {
+      _toast(_invalidPhoneMsg());
       return;
     }
     if (pass.trim().length < 6) {
@@ -746,7 +779,7 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
   Future<void> _signupWithPassword() async {
     final name = _signupNameCtl.text.trim();
-    final phone = _normalizePhone(_signupPhoneCtl.text, country: _country);
+    final phone = _normalizeAndValidatePhone(_signupPhoneCtl.text);
     final pass = _signupPassCtl.text.trim();
     final pass2 = _signupPass2Ctl.text.trim();
 
@@ -754,9 +787,8 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
       _toast(tr(ar: 'الاسم مطلوب', fr: 'Nom requis', en: 'Name required'));
       return;
     }
-    if (phone.isEmpty || phone.replaceAll(RegExp(r'[^0-9]'), '').length < 8) {
-      _toast(
-          tr(ar: 'رقم غير صحيح', fr: 'Numéro invalide', en: 'Invalid number'));
+    if (phone == null) {
+      _toast(_invalidPhoneMsg());
       return;
     }
     if (pass.length < 6) {
@@ -1017,26 +1049,28 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
             ],
           ),
         ),
-        const SizedBox(height: 10),
-        FilledButton(
-          onPressed: _busy ? null : () => _thirdParty(AuthProviderKind.apple),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(50),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: _busy ? null : () => _thirdParty(AuthProviderKind.apple),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.apple, size: 20),
+                const SizedBox(width: 10),
+                Text(tr(
+                    ar: 'التسجيل باستخدام Apple',
+                    fr: 'Continuer avec Apple',
+                    en: 'Continue with Apple')),
+              ],
+            ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.apple, size: 20),
-              const SizedBox(width: 10),
-              Text(tr(
-                  ar: 'التسجيل باستخدام Apple',
-                  fr: 'Continuer avec Apple',
-                  en: 'Continue with Apple')),
-            ],
-          ),
-        ),
+        ],
       ],
     );
   }
@@ -1086,12 +1120,14 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
             controller: _loginPhoneCtl,
             keyboardType: TextInputType.phone,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: _country == '+222' ? 8 : 15,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
             decoration: _fieldDeco(
               cs,
               hint: tr(ar: 'رقم الهاتف', fr: 'Téléphone', en: 'Phone number'),
               icon: Icons.phone,
               suffix: _countrySuffix(cs),
-            ),
+            ).copyWith(counterText: ''),
           ),
 
           const SizedBox(height: 10),
@@ -1192,12 +1228,14 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
             controller: _signupPhoneCtl,
             keyboardType: TextInputType.phone,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: _country == '+222' ? 8 : 15,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
             decoration: _fieldDeco(
               cs,
               hint: tr(ar: 'رقم الهاتف', fr: 'Téléphone', en: 'Phone number'),
               icon: Icons.phone,
               suffix: _countrySuffix(cs),
-            ),
+            ).copyWith(counterText: ''),
           ),
           const SizedBox(height: 10),
           TextField(

@@ -97,6 +97,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/', redirect: (_, __) => '/home'),
 
+      // Alias routes: some parts of the app still navigate to /account
+      // (older deep-links / bottom-nav). Redirect them to the current /you routes.
+      GoRoute(path: '/account', redirect: (_, __) => '/you'),
+      GoRoute(path: '/account/support', redirect: (_, __) => '/you/support'),
+      GoRoute(path: '/account/verify', redirect: (_, __) => '/you/verify'),
+      GoRoute(
+          path: '/account/verify/submit',
+          redirect: (_, __) => '/you/verify/submit'),
+      GoRoute(path: '/account/listings', redirect: (_, __) => '/you/listings'),
+
       GoRoute(
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
@@ -154,13 +164,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ✅ Detail pages on ROOT navigator (safe to open from notifications)
       GoRoute(
-        path: '/product/:id',        builder: (context, state) {
+        path: '/product/:id',
+        builder: (context, state) {
           final id = state.pathParameters['id']!;
           return ProductDetailsScreen(productId: id);
         },
       ),
       GoRoute(
-        path: '/seller/:id',        builder: (context, state) {
+        path: '/seller/:id',
+        builder: (context, state) {
           final id = state.pathParameters['id']!;
           final qp = state.uri.queryParameters;
           return SellerProductsScreen(
@@ -206,7 +218,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/publish',
-            builder: (context, state) => PublishDraftsScreen(extra: state.extra),
+            builder: (context, state) =>
+                PublishDraftsScreen(extra: state.extra),
             routes: [
               GoRoute(
                 path: 'wizard/:draftId',
@@ -287,7 +300,8 @@ class _MainScaffoldState extends State<_MainScaffold> {
     if (location.startsWith('/most-viewed')) return 0;
     if (location.startsWith('/categories')) return 1;
     if (location.startsWith('/publish')) return 2;
-    if (location.startsWith('/you') || location.startsWith('/settings')) return 3;
+    if (location.startsWith('/you') || location.startsWith('/settings'))
+      return 3;
     if (location.startsWith('/search')) return 0;
     return 0;
   }
@@ -356,7 +370,8 @@ class _MainScaffoldState extends State<_MainScaffold> {
                         top: -2,
                         right: -2,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.error,
                             borderRadius: BorderRadius.circular(999),
@@ -367,7 +382,10 @@ class _MainScaffoldState extends State<_MainScaffold> {
                           ),
                           child: Text(
                             unread > 99 ? '99+' : '$unread',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
                                   color: Theme.of(context).colorScheme.onError,
                                   fontWeight: FontWeight.w800,
                                   height: 1,
@@ -394,7 +412,8 @@ class _MainScaffoldState extends State<_MainScaffold> {
                         top: -2,
                         right: -2,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.error,
                             borderRadius: BorderRadius.circular(999),
@@ -405,7 +424,10 @@ class _MainScaffoldState extends State<_MainScaffold> {
                           ),
                           child: Text(
                             unread > 99 ? '99+' : '$unread',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
                                   color: Theme.of(context).colorScheme.onError,
                                   fontWeight: FontWeight.w800,
                                   height: 1,
@@ -444,7 +466,8 @@ class _RouteErrorScreen extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 AppStrings.of(context).pageNotFound,
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),

@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:tiki/features/widgets/similar_products_section.dart';
-import 'package:tiki/features/product/data/products_repository.dart';
 import 'package:tiki/features/product/domain/app_product.dart';
 import 'package:tiki/features/product/state/products_providers.dart';
 import '../../../core/mocks/promo_moderation.dart';
@@ -68,7 +67,13 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
     if (r.canPop()) {
       r.pop();
     } else {
-      context.go('/home');
+      // If opened from in-app notifications via a deeplink, return to inbox.
+      final from = GoRouterState.of(context).uri.queryParameters['from'];
+      if (from == 'notif') {
+        context.go('/notifications');
+      } else {
+        context.go('/home');
+      }
     }
   }
 
