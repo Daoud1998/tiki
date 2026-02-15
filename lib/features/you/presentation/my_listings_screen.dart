@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -365,6 +366,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
 
   Future<void> _showVipOptions(
     BuildContext context, {
+    required String userId,
     required ProductsRepository repo,
     required dynamic product,
     required List<PromoPackage> packages,
@@ -481,14 +483,21 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
 
     await _runWithSnack(
       context,
-      () => repo.updateAttrs(product.id, {
-        PromoKeys.promoPkgId: chosen.id,
-        PromoKeys.promoTier: tier,
-        PromoKeys.promoDays: '${chosen.days}',
-        PromoKeys.promoPriceMru: '${chosen.priceMru}',
-        PromoKeys.promoStatus: PromoStatus.pending,
-        PromoKeys.promoReqAtMs: '$nowMs',
-      }),
+      () async {
+        await FirebaseFirestore.instance.collection('vip_requests').add({
+          'uid': userId,
+          'productId': product.id,
+          'tierId': tier,
+          'tier': tier, // legacy compatibility
+          'pkgId': chosen.id,
+          'days': chosen.days,
+          'priceMru': chosen.priceMru,
+          'type': 'productVip',
+          'status': 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+          'reqAtMs': nowMs,
+        });
+      },
       ok: _tr(context,
           ar: 'تم إرسال طلب VIP',
           fr: 'Demande VIP envoyée',
@@ -573,6 +582,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
 
   Future<void> _showActionsSheet(
     BuildContext context, {
+    required String userId,
     required ProductsRepository repo,
     required dynamic product,
     required bool isPaused,
@@ -654,7 +664,10 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                 onTap: () async {
                   Navigator.of(ctx).pop();
                   await _showVipOptions(context,
-                      repo: repo, product: product, packages: packages);
+                      userId: userId,
+                      repo: repo,
+                      product: product,
+                      packages: packages);
                 },
               ),
               ListTile(
@@ -751,239 +764,283 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (ctx, i) {
               final p = items[i];
-              final promoStatus = PromoModeration.promoStatus(p);
+              final basePromoStatus = PromoModeration.promoStatus(p);
               final isVipActive = PromoModeration.isVipActive(p);
               final until = PromoModeration.promoUntil(p);
-              final isVipExpired = promoStatus == PromoStatus.approved &&
+              final isVipExpired = basePromoStatus == PromoStatus.approved &&
                   until != null &&
                   until.isBefore(DateTime.now());
-              final rejectReason =
-                  promoStatus == PromoStatus.rejected ? _rejectReason(p) : '';
+              final baseRejectReason = basePromoStatus == PromoStatus.rejected
+                  ? _rejectReason(p)
+                  : '';
 
               final isPaused = p.status == 'paused';
               final isSold = p.status == 'sold';
               final isDeleted = p.status == 'deleted';
 
-              final chips = <Widget>[
-                _miniChip(
-                  avatar: const Icon(Icons.remove_red_eye_outlined, size: 16),
-                  label: Text('${p.viewCount}'),
-                ),
-                _miniChip(
-                  avatar: const Icon(Icons.calendar_today_outlined, size: 16),
-                  label: Text(_fmtShortDate(context, p.publishedAt)),
-                ),
-                if (p.status != 'active')
-                  _miniChip(
-                    avatar: Icon(_statusIcon(p.status), size: 16),
-                    label: Text(_statusLabel(context, p.status)),
-                  ),
-                if (isVipActive)
-                  _miniChip(
-                    avatar:
-                        const Icon(Icons.workspace_premium_outlined, size: 16),
-                    label: Text(
-                      until != null
-                          ? '${PromoModeration.promoBadgeText(context, p)} • ${_fmtShortDate(context, until)}'
-                          : PromoModeration.promoBadgeText(context, p),
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('vip_requests')
+                    .where('uid', isEqualTo: userId)
+                    .where('productId', isEqualTo: p.id)
+                    .orderBy('createdAt', descending: true)
+                    .limit(1)
+                    .snapshots(),
+                builder: (context, snap) {
+                  final req = (snap.data?.docs.isNotEmpty ?? false)
+                      ? snap.data!.docs.first.data()
+                      : null;
+                  final reqStatus =
+                      (req?['status'] as String?)?.toLowerCase().trim() ?? '';
+                  final promoStatus = (reqStatus == 'pending')
+                      ? PromoStatus.pending
+                      : (reqStatus == 'rejected')
+                          ? PromoStatus.rejected
+                          : basePromoStatus;
+                  final rejectReason = (reqStatus == 'rejected')
+                      ? ((req?['rejectReason'] ??
+                              req?['promoRejectReason'] ??
+                              req?['reason'] ??
+                              '') as String)
+                          .trim()
+                      : baseRejectReason;
+
+                  final chips = <Widget>[
+                    _miniChip(
+                      avatar:
+                          const Icon(Icons.remove_red_eye_outlined, size: 16),
+                      label: Text('${p.viewCount}'),
                     ),
-                  ),
-                if (!isVipActive && isVipExpired)
-                  _miniChip(
-                    avatar:
-                        const Icon(Icons.workspace_premium_outlined, size: 16),
-                    label: Text(_tr(context,
-                        ar: 'VIP منتهي', fr: 'VIP expiré', en: 'VIP expired')),
-                  ),
-                if (promoStatus == PromoStatus.pending)
-                  _miniChip(
-                    avatar: const Icon(Icons.hourglass_top_rounded, size: 16),
-                    label: Text(_tr(context,
-                        ar: 'VIP قيد المراجعة',
-                        fr: 'VIP en attente',
-                        en: 'VIP pending')),
-                  ),
-                if (promoStatus == PromoStatus.needsPrice)
-                  _miniChip(
-                    avatar: const Icon(Icons.price_check_outlined, size: 16),
-                    label: Text(_tr(context,
-                        ar: 'VIP بانتظار السعر',
-                        fr: 'VIP: prix requis',
-                        en: 'VIP needs price')),
-                  ),
-                if (promoStatus == PromoStatus.rejected)
-                  _miniChip(
-                    avatar: const Icon(Icons.block_outlined, size: 16),
-                    label: Text(_tr(context,
-                        ar: 'VIP مرفوض', fr: 'VIP refusé', en: 'VIP rejected')),
-                    onPressed: rejectReason.trim().isEmpty
-                        ? null
-                        : () {
-                            showDialog<void>(
-                              context: context,
-                              builder: (dctx) {
-                                return AlertDialog(
-                                  title: Text(_tr(context,
-                                      ar: 'سبب الرفض',
-                                      fr: 'Raison',
-                                      en: 'Reason')),
-                                  content: Text(rejectReason),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.of(dctx).pop(),
-                                      child: Text(_tr(context,
-                                          ar: 'حسناً', fr: 'OK', en: 'OK')),
-                                    )
-                                  ],
+                    _miniChip(
+                      avatar:
+                          const Icon(Icons.calendar_today_outlined, size: 16),
+                      label: Text(_fmtShortDate(context, p.publishedAt)),
+                    ),
+                    if (p.status != 'active')
+                      _miniChip(
+                        avatar: Icon(_statusIcon(p.status), size: 16),
+                        label: Text(_statusLabel(context, p.status)),
+                      ),
+                    if (isVipActive)
+                      _miniChip(
+                        avatar: const Icon(Icons.workspace_premium_outlined,
+                            size: 16),
+                        label: Text(
+                          until != null
+                              ? '${PromoModeration.promoBadgeText(context, p)} • ${_fmtShortDate(context, until)}'
+                              : PromoModeration.promoBadgeText(context, p),
+                        ),
+                      ),
+                    if (!isVipActive && isVipExpired)
+                      _miniChip(
+                        avatar: const Icon(Icons.workspace_premium_outlined,
+                            size: 16),
+                        label: Text(_tr(context,
+                            ar: 'VIP منتهي',
+                            fr: 'VIP expiré',
+                            en: 'VIP expired')),
+                      ),
+                    if (promoStatus == PromoStatus.pending)
+                      _miniChip(
+                        avatar:
+                            const Icon(Icons.hourglass_top_rounded, size: 16),
+                        label: Text(_tr(context,
+                            ar: 'VIP قيد المراجعة',
+                            fr: 'VIP en attente',
+                            en: 'VIP pending')),
+                      ),
+                    if (promoStatus == PromoStatus.needsPrice)
+                      _miniChip(
+                        avatar: const Icon(Icons.sell_outlined, size: 16),
+                        label: Text(_tr(context,
+                            ar: 'السعر مطلوب',
+                            fr: 'Prix requis',
+                            en: 'Price needed')),
+                      ),
+                    if (promoStatus == PromoStatus.rejected)
+                      _miniChip(
+                        avatar: const Icon(Icons.block_outlined, size: 16),
+                        label: Text(_tr(context,
+                            ar: 'مرفوض', fr: 'Refusé', en: 'Rejected')),
+                        onPressed: rejectReason.trim().isEmpty
+                            ? null
+                            : () {
+                                showDialog<void>(
+                                  context: context,
+                                  builder: (dctx) {
+                                    return AlertDialog(
+                                      title: Text(_tr(context,
+                                          ar: 'سبب الرفض',
+                                          fr: 'Raison',
+                                          en: 'Reason')),
+                                      content: Text(rejectReason),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.of(dctx).pop(),
+                                          child: Text(_tr(context,
+                                              ar: 'حسناً', fr: 'OK', en: 'OK')),
+                                        )
+                                      ],
+                                    );
+                                  },
                                 );
                               },
-                            );
-                          },
-                  ),
-              ];
+                      ),
+                  ];
 
-              final vipBusy = _isBusy(p.id, 'vip');
-              final pauseBusy = _isBusy(p.id, 'pause');
-              final soldBusy = _isBusy(p.id, 'sold');
+                  final vipBusy = _isBusy(p.id, 'vip');
+                  final pauseBusy = _isBusy(p.id, 'pause');
+                  final soldBusy = _isBusy(p.id, 'sold');
 
-              final vipLabel = (promoStatus == PromoStatus.pending)
-                  ? _tr(context,
-                      ar: 'قيد المراجعة', fr: 'En attente', en: 'Pending')
-                  : (promoStatus == PromoStatus.needsPrice)
+                  final vipLabel = (promoStatus == PromoStatus.pending)
                       ? _tr(context,
-                          ar: 'السعر مطلوب',
-                          fr: 'Prix requis',
-                          en: 'Price needed')
-                      : _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP');
+                          ar: 'قيد المراجعة', fr: 'En attente', en: 'Pending')
+                      : (promoStatus == PromoStatus.needsPrice)
+                          ? _tr(context,
+                              ar: 'السعر مطلوب',
+                              fr: 'Prix requis',
+                              en: 'Price needed')
+                          : _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP');
 
-              VoidCallback? onVipPressed() {
-                if (vipBusy) return null;
-                if (promoStatus == PromoStatus.pending)
-                  return null; // avoid repeated taps
-                if (promoStatus == PromoStatus.needsPrice) {
-                  return () => _showVipNeedsPriceDialog(context, p);
-                }
-                if (isVipActive) {
-                  return () {
-                    showDialog<void>(
-                      context: context,
-                      builder: (dctx) => AlertDialog(
-                        title:
-                            Text(_tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP')),
-                        content: Text(
-                          until != null
-                              ? _tr(
-                                  context,
-                                  ar: 'VIP مفعّل حتى ${_fmtShortDate(context, until)}',
-                                  fr: 'VIP actif jusqu’au ${_fmtShortDate(context, until)}',
-                                  en: 'VIP active until ${_fmtShortDate(context, until)}',
-                                )
-                              : _tr(context,
-                                  ar: 'VIP مفعّل',
-                                  fr: 'VIP actif',
-                                  en: 'VIP active'),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(dctx).pop(),
-                            child: Text(
-                                _tr(context, ar: 'حسناً', fr: 'OK', en: 'OK')),
-                          ),
-                        ],
-                      ),
-                    );
-                  };
-                }
-                return () => _showVipOptions(context,
-                    repo: repo, product: p, packages: packages);
-              }
-
-              return Card(
-                elevation: 0,
-                clipBehavior: Clip.antiAlias,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18)),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ProductCard(
-                        product: p,
-                        variant: ProductCardVariant.compact,
-                        onTap: () => context.push('/product/${p.id}'),
-                      ),
-                      const SizedBox(height: 8),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (int j = 0; j < chips.length; j++) ...[
-                              chips[j],
-                              if (j != chips.length - 1)
-                                const SizedBox(width: 8),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          IconButton(
-                            tooltip: _tr(context,
-                                ar: 'فتح', fr: 'Ouvrir', en: 'Open'),
-                            onPressed: () => context.push('/product/${p.id}'),
-                            icon: const Icon(Icons.open_in_new),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: FilledButton.icon(
-                              style: _smallButtonStyle(context),
-                              onPressed: pauseBusy || soldBusy || vipBusy
-                                  ? null
-                                  : () => context.push('/publish', extra: p),
-                              icon: const Icon(Icons.edit_outlined, size: 18),
-                              label: Text(_tr(context,
-                                  ar: 'تعديل', fr: 'Modifier', en: 'Edit')),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: _smallButtonStyle(context),
-                              onPressed: onVipPressed(),
-                              icon: vipBusy
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
+                  VoidCallback? onVipPressed() {
+                    if (vipBusy) return null;
+                    if (promoStatus == PromoStatus.pending)
+                      return null; // avoid repeated taps
+                    if (promoStatus == PromoStatus.needsPrice) {
+                      return () => _showVipNeedsPriceDialog(context, p);
+                    }
+                    if (isVipActive) {
+                      return () {
+                        showDialog<void>(
+                          context: context,
+                          builder: (dctx) => AlertDialog(
+                            title: Text(
+                                _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP')),
+                            content: Text(
+                              until != null
+                                  ? _tr(
+                                      context,
+                                      ar: 'VIP مفعّل حتى ${_fmtShortDate(context, until)}',
+                                      fr: 'VIP actif jusqu’au ${_fmtShortDate(context, until)}',
+                                      en: 'VIP active until ${_fmtShortDate(context, until)}',
                                     )
-                                  : const Icon(Icons.workspace_premium_outlined,
-                                      size: 18),
-                              label: Text(vipLabel),
+                                  : _tr(context,
+                                      ar: 'VIP مفعّل',
+                                      fr: 'VIP actif',
+                                      en: 'VIP active'),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(dctx).pop(),
+                                child: Text(_tr(context,
+                                    ar: 'حسناً', fr: 'OK', en: 'OK')),
+                              ),
+                            ],
+                          ),
+                        );
+                      };
+                    }
+                    return () => _showVipOptions(context,
+                        userId: userId,
+                        repo: repo,
+                        product: p,
+                        packages: packages);
+                  }
+
+                  return Card(
+                    elevation: 0,
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18)),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ProductCard(
+                            product: p,
+                            variant: ProductCardVariant.compact,
+                            onTap: () => context.push('/product/${p.id}'),
+                          ),
+                          const SizedBox(height: 8),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (int j = 0; j < chips.length; j++) ...[
+                                  chips[j],
+                                  if (j != chips.length - 1)
+                                    const SizedBox(width: 8),
+                                ],
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            tooltip: _tr(context,
-                                ar: 'المزيد', fr: 'Plus', en: 'More'),
-                            onPressed: () => _showActionsSheet(
-                              context,
-                              repo: repo,
-                              product: p,
-                              isPaused: isPaused,
-                              isSold: isSold,
-                              isDeleted: isDeleted,
-                              packages: packages,
-                            ),
-                            icon: const Icon(Icons.more_horiz),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              IconButton(
+                                tooltip: _tr(context,
+                                    ar: 'فتح', fr: 'Ouvrir', en: 'Open'),
+                                onPressed: () =>
+                                    context.push('/product/${p.id}'),
+                                icon: const Icon(Icons.open_in_new),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  style: _smallButtonStyle(context),
+                                  onPressed: pauseBusy || soldBusy || vipBusy
+                                      ? null
+                                      : () =>
+                                          context.push('/publish', extra: p),
+                                  icon:
+                                      const Icon(Icons.edit_outlined, size: 18),
+                                  label: Text(_tr(context,
+                                      ar: 'تعديل', fr: 'Modifier', en: 'Edit')),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  style: _smallButtonStyle(context),
+                                  onPressed: onVipPressed(),
+                                  icon: vipBusy
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : const Icon(
+                                          Icons.workspace_premium_outlined,
+                                          size: 18),
+                                  label: Text(vipLabel),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              IconButton(
+                                tooltip: _tr(context,
+                                    ar: 'المزيد', fr: 'Plus', en: 'More'),
+                                onPressed: () => _showActionsSheet(
+                                  context,
+                                  userId: userId,
+                                  repo: repo,
+                                  product: p,
+                                  isPaused: isPaused,
+                                  isSold: isSold,
+                                  isDeleted: isDeleted,
+                                  packages: packages,
+                                ),
+                                icon: const Icon(Icons.more_horiz),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
           );

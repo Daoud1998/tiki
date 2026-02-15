@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:tiki/core/state/auth_state.dart';
@@ -37,14 +38,25 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   String _errText(String? code) {
     switch (code) {
       case 'weak_password':
-        return 'كلمة المرور ضعيفة';
+        return 'كلمة المرور ضعيفة (6 أحرف على الأقل)';
       case 'requires_recent_login':
         return 'أعد التحقق برمز OTP ثم حاول مرة أخرى';
       case 'not_supported':
         return 'هذا الحساب لا يدعم كلمة مرور للهاتف';
+      case 'not_signed_in':
+        return 'انتهت الجلسة. أعد التحقق برمز OTP ثم حاول مرة أخرى';
+      case 'invalid_phone':
+        return 'رقم الهاتف غير صحيح';
+      case 'email_in_use':
+        return 'هذا الرقم مرتبط بحساب آخر';
       case 'network':
         return 'تحقق من الإنترنت';
+      case 'unauthenticated':
+        return 'غير مصرح. أعد المحاولة';
       default:
+        if (kDebugMode && code != null && code.trim().isNotEmpty) {
+          return 'تعذر تغيير كلمة المرور ($code)';
+        }
         return 'تعذر تغيير كلمة المرور';
     }
   }
@@ -69,14 +81,14 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       final notifier = ref.read(authControllerProvider.notifier);
 
       // This method is added in auth_state.dart (see patch).
-      final res = await (notifier as dynamic).setPhonePasswordAfterOtp(
+      final res = await notifier.setPhonePasswordAfterOtp(
         phoneE164: widget.phoneE164,
         newPassword: p1,
       );
 
       if (!mounted) return;
 
-      if (res is AuthOpResult && !res.ok) {
+      if (!res.ok) {
         _toast(_errText(res.message));
         return;
       }
@@ -84,7 +96,8 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       _toast('تم تغيير كلمة المرور');
       Navigator.of(context).pop(true);
     } catch (e) {
-      _toast('حدث خطأ');
+      debugPrint('ResetPassword submit failed: $e');
+      _toast(kDebugMode ? 'حدث خطأ: $e' : 'حدث خطأ');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

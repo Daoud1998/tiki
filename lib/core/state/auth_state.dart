@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_functions/cloud_functions.dart';
@@ -203,6 +205,38 @@ class AuthController extends StateNotifier<AuthState> {
     return 'p$digits@tiki.phone';
   }
 
+  Future<List<String>> _fetchMethodsForEmailCompat(String email) async {
+    final auth = fb.FirebaseAuth.instance as dynamic;
+
+    try {
+      final res = await auth.fetchSignInMethodsForEmail(email);
+      return (res as List).cast<String>();
+    } catch (_) {
+      try {
+        // Compatibility with older firebase_auth versions
+        final res = await auth.fetchProvidersForEmail(email);
+        return (res as List).cast<String>();
+      } catch (_) {
+        return const <String>[];
+      }
+    }
+  }
+
+  /// Check if a phone already has password-based login enabled.
+  /// This does NOT require the user to be signed in and does NOT read Firestore.
+  Future<bool> phoneHasPasswordLogin({required String phoneE164}) async {
+    final p = _normalizePhone(phoneE164);
+    if (p.isEmpty) return false;
+
+    final email = _pseudoEmailForPhone(p);
+    try {
+      final methods = await _fetchMethodsForEmailCompat(email);
+      return methods.contains('password');
+    } catch (_) {
+      return false;
+    }
+  }
+
   String? _safeEmail(String? email) => _isPseudoEmail(email) ? null : email;
 
   String _mapFirebaseError(Object e) {
@@ -245,19 +279,77 @@ class AuthController extends StateNotifier<AuthState> {
 
   String _mapFunctionsError(Object e) {
     if (e is FirebaseFunctionsException) {
-      // Common ones we may raise from functions:
-      // - failed-precondition (missing env, etc.)
-      // - invalid-argument
-      // - internal (whatsapp api failure)
+      final msg = (e.message ?? '').toString();
+      final details = e.details;
+
+      // details is often a JSON-like map from Cloud Functions.
+      Map<String, dynamic> d = <String, dynamic>{};
+      if (details is Map) {
+        try {
+          d = Map<String, dynamic>.from(details);
+        } catch (_) {}
+      }
+
+      final detMsg = (d['message'] ?? d['error'] ?? '').toString();
+      final twilioCode = d['code'] == null ? '' : d['code'].toString();
+      final combined = ('$msg $detMsg').toUpperCase();
+
+      if (kDebugMode) {
+        debugPrint(
+            'FunctionsException code=${e.code} message=$msg details=$details');
+      }
+
       switch (e.code) {
         case 'failed-precondition':
+          if (combined.contains('TWILIO_NOT_CONFIGURED'))
+            return 'twilio_not_configured';
+          if (combined.contains('OTP_NOT_CONFIGURED'))
+            return 'functions_not_configured';
           return 'functions_not_configured';
+
         case 'invalid-argument':
           return 'invalid_phone';
+
+        case 'deadline-exceeded':
+          return 'otp_expired';
+
+        case 'permission-denied':
+          return 'otp_invalid';
+
         case 'resource-exhausted':
           return 'too_many_requests';
+
         case 'unauthenticated':
           return 'unauthenticated';
+
+        case 'unavailable':
+          return 'network';
+
+        case 'not-found':
+          // callable function missing (not deployed / wrong region)
+          return 'functions_not_found';
+
+        case 'internal':
+          // Twilio errors are thrown as internal with message markers.
+          if (combined.contains('TWILIO_SEND_FAILED')) {
+            return twilioCode.isNotEmpty
+                ? 'twilio_send_failed_$twilioCode'
+                : 'twilio_send_failed';
+          }
+          if (combined.contains('TWILIO_VERIFY_FAILED')) {
+            return twilioCode.isNotEmpty
+                ? 'twilio_verify_failed_$twilioCode'
+                : 'twilio_verify_failed';
+          }
+          if (combined.contains('AUTH_LOOKUP_FAILED'))
+            return 'auth_lookup_failed';
+
+          // If Cloud Function didn't include a marker but provided Twilio-like details, still surface it.
+          if (twilioCode.isNotEmpty) {
+            return 'twilio_send_failed_$twilioCode';
+          }
+          return 'functions_internal';
+
         default:
           return 'functions_${e.code}';
       }
@@ -452,6 +544,117 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   // ---------------------------------------------------------------------------
+  // Twilio Verify OTP (Cloud Functions + Custom Token)
+  // ---------------------------------------------------------------------------
+
+  FirebaseFunctions _functionsEU() =>
+      FirebaseFunctions.instanceFor(region: 'europe-west1');
+
+  /// Send OTP via Twilio Verify using callable function: twilioStartOtp
+  Future<AuthOpResult> requestTwilioOtp({
+    required String phoneE164,
+    String channel = 'sms', // 'sms' | 'whatsapp'
+  }) async {
+    final p = _normalizePhone(phoneE164);
+    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
+
+    try {
+      final fn = _functionsEU().httpsCallable('twilioStartOtp');
+      await fn.call(<String, dynamic>{
+        'phoneE164': p,
+        'channel': channel,
+      });
+      return const AuthOpResult.ok();
+    } catch (e) {
+      return AuthOpResult.fail(_mapFunctionsError(e));
+    }
+  }
+
+  /// Verify OTP via Twilio and sign in using Firebase custom token.
+  Future<AuthOpResult> signInWithTwilioOtp({
+    required String phoneE164,
+    required String code,
+  }) async {
+    final p = _normalizePhone(phoneE164);
+    if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
+
+    final c = code.trim();
+    if (c.isEmpty) return const AuthOpResult.fail('otp_invalid');
+
+    try {
+      final fn = _functionsEU().httpsCallable('twilioVerifyOtp');
+      final r = await fn.call(<String, dynamic>{'phoneE164': p, 'code': c});
+
+      final raw = r.data;
+      final data =
+          raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+      final ok = data['ok'] == true;
+
+      if (!ok) {
+        final st = (data['status'] ?? '').toString().toLowerCase();
+        if (st == 'expired') return const AuthOpResult.fail('otp_expired');
+        return const AuthOpResult.fail('otp_invalid');
+      }
+
+      final token = (data['customToken'] ?? '').toString();
+      if (token.isEmpty) return const AuthOpResult.fail('unknown');
+
+      // Sign in with Firebase custom token.
+      final res = await fb.FirebaseAuth.instance.signInWithCustomToken(token);
+      final u = res.user;
+
+      // Don't block sign-in if Firestore/AppCheck prevents user doc write.
+      if (u != null) {
+        try {
+          await _ensureUserDoc(user: u, phoneE164Override: p);
+        } catch (e) {
+          // ignore but log
+          // ignore: avoid_print
+          print('ensureUserDoc (twilio) skipped: $e');
+        }
+      }
+
+      return const AuthOpResult.ok();
+    } on fb.FirebaseAuthException catch (e) {
+      // Return auth error so UI can show a meaningful message.
+      // ignore: avoid_print
+      print('signInWithCustomToken failed: code=${e.code} msg=${e.message}');
+      return AuthOpResult.fail('auth_${e.code}');
+    } catch (e) {
+      return AuthOpResult.fail(_mapFunctionsError(e));
+    }
+  }
+
+  /// Signup via Twilio OTP then store profile info (name/email) in users/{uid}.
+  Future<AuthOpResult> createAccountWithTwilioOtp({
+    required String name,
+    required String phoneE164,
+    required String code,
+    String? email,
+  }) async {
+    final res = await signInWithTwilioOtp(phoneE164: phoneE164, code: code);
+    if (!res.ok) return res;
+
+    final u = fb.FirebaseAuth.instance.currentUser;
+    if (u == null) return const AuthOpResult.fail('unknown');
+
+    final dn = name.trim();
+    try {
+      if (dn.isNotEmpty) {
+        await u.updateDisplayName(dn);
+      }
+      await _ensureUserDoc(
+        user: u,
+        displayName: dn,
+        email: email,
+        phoneE164Override: _normalizePhone(phoneE164),
+      );
+      return const AuthOpResult.ok();
+    } catch (e) {
+      return AuthOpResult.fail(_mapFirebaseError(e));
+    }
+  }
+// ---------------------------------------------------------------------------
   // Phone + Password (implemented via hidden Email/Password on a pseudo email)
   // ---------------------------------------------------------------------------
 

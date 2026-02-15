@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -308,6 +306,70 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
   // ---------------------------------------------------------------------------
 
   String _otpErrorText(String key) {
+    // Firebase custom-token sign-in errors (show real auth code)
+    if (key.startsWith('auth_')) {
+      final c = key.substring(5);
+      return tr(
+        ar: 'تعذر إكمال تسجيل الدخول ($c)',
+        fr: "Impossible de terminer la connexion ($c)",
+        en: 'Could not complete sign-in ($c)',
+      );
+    }
+
+    // Twilio send/verify failures may include a numeric error code suffix.
+    String? _extractTwilioCode(String k) {
+      final m = RegExp(r'_(\d{4,6})\$').firstMatch(k);
+      return m?.group(1);
+    }
+
+    if (key.startsWith('twilio_send_failed')) {
+      final c = _extractTwilioCode(key);
+
+      if (c == '60410') {
+        return tr(
+          ar: 'Twilio حظر الإرسال مؤقتًا لهذا البريفكس (~12 ساعة) بسبب Fraud Guard. جرّب لاحقًا أو Unblock من Twilio Console.',
+          fr: "Twilio a bloqué temporairement ce préfixe (~12h) via Fraud Guard. Réessayez plus tard ou débloquez via Console.",
+          en: 'Twilio temporarily blocked this prefix (~12h) via Fraud Guard. Try later or unblock in Twilio Console.',
+        );
+      }
+      if (c == '21408') {
+        return tr(
+          ar: 'الإرسال محجوب بسبب Geo Permissions في Twilio. فعّل الدولة في Messaging/Verify Geo Permissions.',
+          fr: "Envoi bloqué par Geo Permissions Twilio. Activez le pays dans Messaging/Verify Geo Permissions.",
+          en: 'Blocked by Twilio Geo Permissions. Enable the country in Messaging/Verify Geo Permissions.',
+        );
+      }
+      if (c == '21608') {
+        return tr(
+          ar: 'حساب Twilio Trial: الرقم غير Verified داخل Twilio. وثّق الرقم أو قم بترقية الحساب.',
+          fr: "Compte Twilio Trial : numéro non vérifié. Vérifiez-le ou upgradez le compte.",
+          en: 'Twilio Trial: number not verified. Verify it or upgrade the account.',
+        );
+      }
+      if (c == '20003') {
+        return tr(
+          ar: 'بيانات Twilio غير صحيحة (SID/TOKEN). تحقق من env في Functions وأعد النشر.',
+          fr: "Identifiants Twilio invalides (SID/TOKEN). Vérifiez env Functions et redeployez.",
+          en: 'Invalid Twilio credentials (SID/TOKEN). Check Functions env and redeploy.',
+        );
+      }
+
+      return tr(
+        ar: 'فشل إرسال الرمز عبر Twilio${c != null ? " (code: $c)" : ""}. راجع Twilio (Geo permissions/الرصيد/Verify).',
+        fr: "Échec d’envoi Twilio${c != null ? " (code: $c)" : ""}. Vérifiez Twilio (Geo permissions/crédit/Verify).",
+        en: 'Failed to send code via Twilio${c != null ? " (code: $c)" : ""}. Check Twilio (Geo permissions/balance/Verify).',
+      );
+    }
+
+    if (key.startsWith('twilio_verify_failed')) {
+      final c = _extractTwilioCode(key);
+      return tr(
+        ar: 'فشل التحقق من الرمز عبر Twilio${c != null ? " (code: $c)" : ""}. تأكد من صحة الرمز وحاول مرة أخرى.',
+        fr: "Échec de vérification Twilio${c != null ? " (code: $c)" : ""}. Vérifiez le code et réessayez.",
+        en: 'Failed to verify code via Twilio${c != null ? " (code: $c)" : ""}. Check the code and retry.',
+      );
+    }
+
     switch (key) {
       case 'otp_invalid':
         return tr(ar: 'رمز غير صحيح', fr: 'Code incorrect', en: 'Invalid code');
@@ -337,14 +399,47 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
             ar: 'اطلب الرمز أولاً',
             fr: 'Demandez le code d’abord',
             en: 'Request code first');
+      case 'twilio_not_configured':
+        return tr(
+          ar: 'Twilio غير مهيأ بعد (تأكد من functions/.env ثم انشر Functions)',
+          fr: "Twilio n’est pas configuré (functions/.env)",
+          en: 'Twilio not configured (functions/.env)',
+        );
       case 'functions_not_configured':
         return tr(
-          ar: 'واتساب غير مهيأ بعد (تأكد من إعداد Functions و .env)',
-          fr: "WhatsApp n’est pas configuré (Functions/.env)",
-          en: 'WhatsApp not configured (Functions/.env)',
+          ar: 'OTP غير مهيأ بعد (تأكد من functions/.env ثم انشر Functions)',
+          fr: "OTP n’est pas configuré (functions/.env)",
+          en: 'OTP not configured (functions/.env)',
+        );
+      case 'auth_lookup_failed':
+        return tr(
+          ar: 'تم التحقق من الرمز لكن فشل إنشاء/جلب المستخدم في Firebase. راجع Logs للـ Functions.',
+          fr: "Code validé mais échec Firebase user. Vérifiez les logs Functions.",
+          en: 'OTP verified but failed to create/lookup Firebase user. Check Functions logs.',
+        );
+      case 'functions_not_found':
+        return tr(
+          ar: 'الدالة غير موجودة (غير منشورة أو region غير صحيح).',
+          fr: "Fonction introuvable (non déployée ou mauvaise région).",
+          en: 'Function not found (not deployed or wrong region).',
+        );
+      case 'functions_internal':
+        return tr(
+          ar: 'خطأ داخلي من الخادم. راجع Logs للـ Functions.',
+          fr: "Erreur interne serveur. Consultez les logs Functions.",
+          en: 'Server internal error. Check Functions logs.',
+        );
+      case 'unauthenticated':
+        return tr(
+          ar: 'غير مصرح. أعد المحاولة.',
+          fr: "Non authentifié. Réessayez.",
+          en: 'Unauthenticated. Please retry.',
         );
       default:
-        return tr(ar: 'حدث خطأ', fr: 'Erreur', en: 'Something went wrong');
+        return tr(
+            ar: 'حدث خطأ ($key)',
+            fr: 'Erreur ($key)',
+            en: 'Something went wrong ($key)');
     }
   }
 
@@ -475,7 +570,7 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(6),
+                      LengthLimitingTextInputFormatter(10),
                     ],
                     onChanged: (v) => setLocal(() => otp = v),
                     decoration: InputDecoration(
@@ -495,9 +590,9 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
                             fr: 'Vérifiez WhatsApp puis saisissez le code ici.',
                             en: 'Check WhatsApp then enter the code here.')
                         : tr(
-                            ar: 'إن لم يصلك SMS حاول مرة أخرى.',
-                            fr: 'Si le SMS n’arrive pas, utilisez WhatsApp.',
-                            en: 'If SMS fails, use WhatsApp.'),
+                            ar: 'قد يتأخر SMS قليلاً. إن لم يصلك الرمز، تأكد من الرقم ثم أعد الإرسال.',
+                            fr: "Le SMS peut prendre un moment. Vérifiez le numéro puis réessayez.",
+                            en: 'SMS may take a moment. Verify the number then retry.'),
                     style: TextStyle(
                         fontSize: 12, color: cs.onSurface.withAlpha(150)),
                   ),
@@ -535,14 +630,17 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     setState(() => _busy = true);
 
     try {
-      final status = await ref
-          .read(authControllerProvider.notifier)
-          .requestPhoneOtp(phone);
+      final notifier = ref.read(authControllerProvider.notifier);
+
+      final sent = await notifier.requestTwilioOtp(
+        phoneE164: phone,
+        channel: 'sms',
+      );
 
       if (!mounted) return;
 
-      if (ref.read(authControllerProvider).isSignedIn || status == 'auto') {
-        await _goNext();
+      if (!sent.ok) {
+        _toast(_otpErrorText(sent.message ?? 'unknown'));
         return;
       }
 
@@ -552,10 +650,10 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
       if (!mounted) return;
       if (entered == null || entered.isEmpty) return;
 
-      final res = await ref.read(authControllerProvider.notifier).signInWithOtp(
-            phoneE164: phone,
-            code: entered,
-          );
+      final res = await notifier.signInWithTwilioOtp(
+        phoneE164: phone,
+        code: entered,
+      );
 
       if (!mounted) return;
 
@@ -566,18 +664,8 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
       await _goNext();
     } catch (e) {
-      if (!mounted) return;
-
-      if (e is FirebaseAuthException) {
-        debugPrint('OTP send failed: ${e.code} ${e.message}');
-        _toast(_sendOtpErrorText(e.code));
-      } else {
-        debugPrint('OTP send failed: $e');
-        _toast(tr(
-            ar: 'تعذر إرسال الرمز',
-            fr: "Impossible d’envoyer le code",
-            en: 'Failed to send code'));
-      }
+      debugPrint('Twilio OTP login failed: $e');
+      _toast(tr(ar: 'حدث خطأ', fr: 'Erreur', en: 'Something went wrong'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -588,37 +676,34 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     _pwCheckDebounce = Timer(const Duration(milliseconds: 450), () async {
       final phone = _normalizeAndValidatePhone(_loginPhoneCtl.text);
       if (phone == null) {
-        if (mounted) {
-          setState(() {
-            _passwordEligible = false;
-            // Keep password login as the only login method.
-            _usePassword = true;
-          });
-        }
+        if (!mounted) return;
+        setState(() {
+          _passwordEligible = false;
+          _usePassword = true;
+        });
         return;
       }
 
+      final checkedPhone = phone;
       try {
-        final q = await FirebaseFirestore.instance
-            .collection('users')
-            .where('phoneE164', isEqualTo: phone)
-            .where('hasPassword', isEqualTo: true)
-            .limit(1)
-            .get();
-
-        final eligible = q.docs.isNotEmpty;
+        final notifier = ref.read(authControllerProvider.notifier);
+        final eligible =
+            await notifier.phoneHasPasswordLogin(phoneE164: checkedPhone);
 
         if (!mounted) return;
+
+        // Ignore stale results if the user changed the phone while we were checking.
+        final current = _normalizeAndValidatePhone(_loginPhoneCtl.text);
+        if (current != checkedPhone) return;
+
         setState(() {
           _passwordEligible = eligible;
-          // Keep password login as the only login method.
           _usePassword = true;
         });
       } catch (_) {
         if (!mounted) return;
         setState(() {
           _passwordEligible = false;
-          // Keep password login as the only login method.
           _usePassword = true;
         });
       }
@@ -654,20 +739,28 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     setState(() => _busy = true);
 
     try {
-      // Use your existing OTP channel (WhatsApp or SMS) - here we reuse WhatsApp OTP request method.
-      await ref.read(authControllerProvider.notifier).requestPhoneOtp(phone);
+      final notifier = ref.read(authControllerProvider.notifier);
+
+      final sent = await notifier.requestTwilioOtp(
+        phoneE164: phone,
+        channel: 'sms',
+      );
 
       if (!mounted) return;
 
-      // Ask for the code from the user
-      final entered = await _askOtpDialog(channel: 'otp');
+      if (!sent.ok) {
+        _toast(_otpErrorText(sent.message ?? 'unknown'));
+        return;
+      }
+
+      final entered = await _askOtpDialog(channel: 'sms');
       if (!mounted) return;
       if (entered == null || entered.trim().isEmpty) return;
 
-      final res = await ref.read(authControllerProvider.notifier).signInWithOtp(
-            phoneE164: phone,
-            code: entered.trim(),
-          );
+      final res = await notifier.signInWithTwilioOtp(
+        phoneE164: phone,
+        code: entered.trim(),
+      );
 
       if (!mounted) return;
 
@@ -678,18 +771,12 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
       await _openResetPassword(phone);
     } catch (e) {
-      if (!mounted) return;
-      if (e is FirebaseAuthException) {
-        debugPrint('Forgot-pass OTP failed: ${e.code} ${e.message}');
-        _toast(_sendOtpErrorText(e.code));
-      } else {
-        debugPrint('Forgot-pass OTP failed: $e');
-        _toast(tr(
-          ar: 'تعذر إرسال الرمز',
-          fr: "Impossible d’envoyer le code",
-          en: 'Failed to send code',
-        ));
-      }
+      debugPrint('Forgot-pass Twilio OTP failed: $e');
+      _toast(tr(
+        ar: 'تعذر إرسال/التحقق من الرمز',
+        fr: "Impossible d’envoyer/vérifier le code",
+        en: 'Failed to send/verify code',
+      ));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -812,25 +899,28 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     final notifier = ref.read(authControllerProvider.notifier);
 
     try {
-      // 1) Send SMS OTP
-      final status = await (notifier as dynamic).requestPhoneOtp(phone);
+      // 1) Send OTP via Twilio Verify (SMS)
+      final sent = await notifier.requestTwilioOtp(
+        phoneE164: phone,
+        channel: 'sms',
+      );
+
       if (!mounted) return;
 
-      // Some implementations return a String status; treat non-empty as ok.
-      if (status is AuthOpResult) {
-        if (!status.ok) {
-          _toast(_otpErrorText(status.message ?? 'unknown'));
-          return;
-        }
+      if (!sent.ok) {
+        _toast(_otpErrorText(sent.message ?? 'unknown'));
+        return;
       }
+
+      _toast(tr(ar: 'تم إرسال الرمز', fr: 'Code envoyé', en: 'Code sent'));
 
       // 2) Ask user for OTP
       final entered = await _askOtpDialog(channel: 'sms');
       if (!mounted) return;
       if (entered == null || entered.trim().isEmpty) return;
 
-      // 3) Create account using OTP
-      final created = await (notifier as dynamic).createAccountWithOtp(
+      // 3) Create account using Twilio OTP
+      final created = await notifier.createAccountWithTwilioOtp(
         name: name,
         phoneE164: phone,
         code: entered.trim(),
@@ -838,24 +928,20 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
 
       if (!mounted) return;
 
-      if (created is AuthOpResult && !created.ok) {
-        _toast(created.message ??
-            tr(
-                ar: 'تعذر إنشاء الحساب',
-                fr: "Impossible de créer le compte",
-                en: 'Failed to create account'));
+      if (!created.ok) {
+        _toast(_otpErrorText(created.message ?? 'unknown'));
         return;
       }
 
       // 4) Link password to the account (phone+password)
-      final linked = await (notifier as dynamic).enablePhonePasswordLogin(
+      final linked = await notifier.enablePhonePasswordLogin(
         phoneE164: phone,
         password: pass,
       );
 
       if (!mounted) return;
 
-      if (linked is AuthOpResult && !linked.ok) {
+      if (!linked.ok) {
         _toast(linked.message ??
             tr(
                 ar: 'تعذر حفظ كلمة المرور',
@@ -865,11 +951,8 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
       }
 
       await _goNext();
-    } on FirebaseAuthException catch (e) {
-      debugPrint('Signup SMS OTP failed: ${e.code} ${e.message}');
-      _toast(_sendOtpErrorText(e.code));
     } catch (e) {
-      debugPrint('Signup SMS OTP failed: $e');
+      debugPrint('Signup Twilio OTP failed: $e');
       _toast(tr(ar: 'حدث خطأ', fr: 'Erreur', en: 'Something went wrong'));
     } finally {
       if (mounted) setState(() => _busy = false);

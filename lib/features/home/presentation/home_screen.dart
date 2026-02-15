@@ -1421,9 +1421,7 @@ class _StickyHomeHeader extends SliverPersistentHeaderDelegate {
 
   @override
   double get maxExtent {
-    final extras = (showKeywords ? _tabsExtra : 0) +
-        (promos.isEmpty ? 0 : _promoBlock) +
-        _splitBlock;
+    final extras = (showKeywords ? _tabsExtra : 0) + _promoBlock + _splitBlock;
     return minExtent + extras;
   }
 

@@ -15,9 +15,12 @@ dependencies:
 
   crypto: ^3.0.3
 
+  firebase_app_check: ^0.4.1+4
+ 
+
   firebase_messaging: ^16.0.0
 
-  sms_autofill: ^2.3.1
+  sms_autofill: ^2.4.0
 
   # Localization + formatting
   flutter_localizations:

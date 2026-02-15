@@ -1,0 +1,25 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Tiki - Download</title>
+  </head>
+  <body>
+    <p>Redirecting…</p>
+    <script>
+      const IOS_STORE_URL = "https://apps.apple.com/app/id6758773151";
+      const ANDROID_STORE_URL =
+        "https://play.google.com/store/apps/details?id=app.tiki.mr";
+      const FALLBACK_URL = "https://tiki-a9d30.web.app";
+
+      const ua = navigator.userAgent || "";
+      const isAndroid = /Android/i.test(ua);
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+
+      if (isIOS) location.replace(IOS_STORE_URL);
+      else if (isAndroid) location.replace(ANDROID_STORE_URL);
+      else location.replace(FALLBACK_URL);
+    </script>
+  </body>
+</html>
