@@ -46,8 +46,10 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIStatusBarHidden</key>
-	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+
 
 	<!-- Google Sign-In -->
 	<key>GIDClientID</key>
