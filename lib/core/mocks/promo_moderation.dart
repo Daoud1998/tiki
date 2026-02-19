@@ -319,7 +319,7 @@ PromoPackage(
       return _tr(context, ar: 'مميّز', fr: 'Vedette', en: 'Featured');
     if (t == 'boost')
       return _tr(context, ar: 'تعزيز', fr: 'Boost', en: 'Boost');
-    return _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP');
+    return _tr(context, ar: 'مميّز', fr: 'Vedette', en: 'Featured');
   }
 
   static String _tr(BuildContext context,

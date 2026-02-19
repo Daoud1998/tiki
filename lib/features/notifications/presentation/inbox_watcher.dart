@@ -124,7 +124,7 @@ class _InboxWatcher {
               '${body.ar} ${body.fr} ${body.en}')
           .toLowerCase();
       if (combined.contains('vip')) {
-        route = '/promo-ads?mine=1';
+        route = '/you/support';
       }
     }
 
