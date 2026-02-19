@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/core/widgets/product_card.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
+
+import '../../../core/widgets/product_card.dart';
+import '../../product/state/products_providers.dart';
 
 class SellerProductsScreen extends ConsumerWidget {
   const SellerProductsScreen({

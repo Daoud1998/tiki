@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/features/publish/presentation/data/publish_drafts_repository.dart';
-import 'package:tiki/features/publish/presentation/domain/publish_draft.dart';
-import 'package:tiki/core/data/ma_catalog.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
 
-
+import '../../../core/data/ma_catalog.dart';
+import '../../../core/state/auth_state.dart' as auth;
+import '../../product/domain/app_product.dart';
+import 'data/publish_drafts_repository.dart';
+import 'domain/publish_draft.dart';
 import 'publish_drafts_controller.dart';
 
 class PublishDraftsScreen extends ConsumerStatefulWidget {
@@ -152,6 +152,32 @@ class _PublishDraftsScreenState extends ConsumerState<PublishDraftsScreen> {
     context.push('/publish/wizard/$id');
   }
 
+  Future<void> _showPublishingBlockedDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(tr(
+            ar: 'تم إيقاف النشر',
+            fr: 'Publication désactivée',
+            en: 'Publishing disabled',
+          )),
+          content: Text(tr(
+            ar: 'تم منع حسابك من النشر مؤقتًا بواسطة الإدارة. إذا كنت ترى أن هذا خطأ، تواصل مع الدعم.',
+            fr: 'Votre compte a été bloqué pour la publication par l\'administration. Si c\'est une erreur, contactez le support.',
+            en: 'Your account has been temporarily blocked from publishing by admin. If this is a mistake, contact support.',
+          )),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(tr(ar: 'حسناً', fr: 'OK', en: 'OK')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _deleteDraft(String id) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -295,6 +321,9 @@ class _PublishDraftsScreenState extends ConsumerState<PublishDraftsScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final blockedAsync = ref.watch(auth.publishingDisabledProvider);
+    final publishingBlocked =
+        blockedAsync.maybeWhen(data: (v) => v, orElse: () => false);
     final drafts = ref.watch(publishDraftsControllerProvider);
     final repo = ref.watch(publishDraftsRepositoryProvider);
     final lastId = (repo.getLastDraftId() ?? '').trim();
@@ -391,7 +420,9 @@ class _PublishDraftsScreenState extends ConsumerState<PublishDraftsScreen> {
       floatingActionButton: _selectionMode
           ? null
           : FloatingActionButton.extended(
-              onPressed: _createNewDraft,
+              onPressed: publishingBlocked
+                  ? _showPublishingBlockedDialog
+                  : _createNewDraft,
               icon: const Icon(Icons.add_rounded),
               label: Text(tr(ar: 'نشر جديد', fr: 'Nouveau', en: 'New')),
             ),
@@ -404,6 +435,40 @@ class _PublishDraftsScreenState extends ConsumerState<PublishDraftsScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 120),
           children: [
+            if (publishingBlocked) ...[
+              Card(
+                elevation: 0,
+                color: cs.errorContainer.withAlpha(120),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.block_rounded, color: cs.error),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          tr(
+                            ar: 'تم إيقاف النشر لحسابك من قبل الإدارة',
+                            fr: 'La publication est désactivée pour votre compte',
+                            en: 'Publishing is disabled for your account',
+                          ),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: cs.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _showPublishingBlockedDialog,
+                        child: Text(
+                            tr(ar: 'تفاصيل', fr: 'Détails', en: 'Details')),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (!_selectionMode && lastDraft != null) ...[
               Card(
                 elevation: 0,
@@ -441,7 +506,9 @@ class _PublishDraftsScreenState extends ConsumerState<PublishDraftsScreen> {
                       ),
                       const SizedBox(width: 10),
                       FilledButton(
-                        onPressed: () => _continueDraft(lastDraft.id),
+                        onPressed: publishingBlocked
+                            ? _showPublishingBlockedDialog
+                            : () => _continueDraft(lastDraft.id),
                         child: Text(
                             tr(ar: 'متابعة', fr: 'Continuer', en: 'Continue')),
                       ),
@@ -481,7 +548,9 @@ class _PublishDraftsScreenState extends ConsumerState<PublishDraftsScreen> {
                       ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
-                        onPressed: _createNewDraft,
+                        onPressed: publishingBlocked
+                            ? _showPublishingBlockedDialog
+                            : _createNewDraft,
                         icon: const Icon(Icons.add_rounded),
                         label:
                             Text(tr(ar: 'نشر جديد', fr: 'Nouveau', en: 'New')),

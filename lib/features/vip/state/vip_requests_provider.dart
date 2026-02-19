@@ -26,10 +26,15 @@ class VipRequest {
     int asInt(dynamic v) {
       if (v is int) return v;
       if (v is num) return v.toInt();
+      if (v is Timestamp) return v.millisecondsSinceEpoch;
       return int.tryParse((v ?? '').toString()) ?? 0;
     }
 
-    final createdAtMs = asInt(m['createdAtMs']);
+    final createdAtMs = asInt(m['createdAtMs']) != 0
+        ? asInt(m['createdAtMs'])
+        : (asInt(m['reqAtMs']) != 0
+            ? asInt(m['reqAtMs'])
+            : asInt(m['createdAt']));
     return VipRequest(
       id: d.id,
       productId: (m['productId'] ?? '').toString(),

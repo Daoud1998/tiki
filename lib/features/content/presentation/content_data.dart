@@ -9,7 +9,7 @@ export '../../../core/i18n/tikki_tr.dart' show tikkiTr;
 /// - Text is intentionally short and structured so you can later replace
 ///   it with HTML/Markdown, Firestore docs, or remote config.
 
-class TikkiContentSection {
+class TkiiContentSection {
   final String? headingAr;
   final String? headingFr;
   final String? headingEn;
@@ -17,7 +17,7 @@ class TikkiContentSection {
   final String bodyFr;
   final String bodyEn;
 
-  const TikkiContentSection({
+  const TkiiContentSection({
     this.headingAr,
     this.headingFr,
     this.headingEn,
@@ -39,14 +39,14 @@ class TikkiContentSection {
   String body(BuildContext c) => tikkiTr(c, ar: bodyAr, fr: bodyFr, en: bodyEn);
 }
 
-class TikkiPolicyArticle {
+class TkiiPolicyArticle {
   final String id;
   final String titleAr;
   final String titleFr;
   final String titleEn;
-  final List<TikkiContentSection> sections;
+  final List<TkiiContentSection> sections;
 
-  const TikkiPolicyArticle({
+  const TkiiPolicyArticle({
     required this.id,
     required this.titleAr,
     required this.titleFr,
@@ -58,14 +58,14 @@ class TikkiPolicyArticle {
       tikkiTr(c, ar: titleAr, fr: titleFr, en: titleEn);
 }
 
-const List<TikkiPolicyArticle> tikkiPolicyArticles = [
-  TikkiPolicyArticle(
+const List<TkiiPolicyArticle> tikkiPolicyArticles = [
+  TkiiPolicyArticle(
     id: 'privacy',
     titleAr: 'سياسة الخصوصية',
     titleFr: 'Confidentialité',
     titleEn: 'Privacy Policy',
     sections: [
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: null,
         headingFr: null,
         headingEn: null,
@@ -76,7 +76,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'Last updated: 10 Feb 2026\n\nWe respect your privacy. This policy explains the data we may collect, how we use it, and when we share it. By using the app, you agree to this policy.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'ما الذي نجمعه؟',
         headingFr: 'Données collectées',
         headingEn: 'What we collect',
@@ -98,7 +98,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
             '• Usage: search terms, preferences, in-app interactions (e.g., favorites).\n'
             '• Technical: device type, OS, analytics/crash identifiers, error logs.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'كيف نستخدم المعلومات؟',
         headingFr: 'Utilisation',
         headingEn: 'How we use it',
@@ -123,7 +123,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
             '• Detect fraud/abuse, handle reports, and moderate content.\n'
             '• Send important notifications (publishing/review status) when needed.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'متى نشارك البيانات؟',
         headingFr: 'Partage',
         headingEn: 'When we share data',
@@ -142,7 +142,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
             '• With service providers: hosting, storage, analytics required to operate the app.\n'
             '• Legal reasons: official requests or to protect our rights and users.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'الاحتفاظ والحذف',
         headingFr: 'Conservation & suppression',
         headingEn: 'Retention & deletion',
@@ -153,7 +153,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'We retain data while your account is active or as needed to provide the service. You can delete your listings in-app. If you request account deletion, some data may be retained briefly for legal/anti-fraud purposes.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'خياراتك وحقوقك',
         headingFr: 'Vos choix',
         headingEn: 'Your choices',
@@ -172,7 +172,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
             '• Control which contact details you show.\n'
             '• Request help or account deletion via in-app support.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'الأمان والأطفال',
         headingFr: 'Sécurité & enfants',
         headingEn: 'Security & children',
@@ -185,24 +185,24 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
       ),
     ],
   ),
-  TikkiPolicyArticle(
+  TkiiPolicyArticle(
     id: 'terms',
     titleAr: 'الشروط والأحكام',
     titleFr: 'Conditions',
     titleEn: 'Terms & Conditions',
     sections: [
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: null,
         headingFr: null,
         headingEn: null,
         bodyAr:
-            'آخر تحديث: 10 فبراير 2026\n\nمرحباً بك في Tikki. باستخدامك للتطبيق، أنت توافق على هذه الشروط. إذا لم توافق، يرجى عدم استخدام التطبيق.',
+            'آخر تحديث: 10 فبراير 2026\n\nمرحباً بك في Tkii. باستخدامك للتطبيق، أنت توافق على هذه الشروط. إذا لم توافق، يرجى عدم استخدام التطبيق.',
         bodyFr:
-            'Dernière mise à jour : 10 février 2026\n\nBienvenue sur Tikki. En utilisant l\'application, vous acceptez ces conditions. Si vous n\'êtes pas d\'accord, veuillez ne pas utiliser l\'application.',
+            'Dernière mise à jour : 10 février 2026\n\nBienvenue sur Tkii. En utilisant l\'application, vous acceptez ces conditions. Si vous n\'êtes pas d\'accord, veuillez ne pas utiliser l\'application.',
         bodyEn:
-            'Last updated: 10 Feb 2026\n\nWelcome to Tikki. By using the app, you agree to these terms. If you do not agree, please do not use the app.',
+            'Last updated: 10 Feb 2026\n\nWelcome to Tkii. By using the app, you agree to these terms. If you do not agree, please do not use the app.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'من يمكنه استخدام التطبيق؟',
         headingFr: 'Éligibilité',
         headingEn: 'Eligibility',
@@ -213,7 +213,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'You must be legally able to enter agreements. You are responsible for your account and any activity under it.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'مسؤولية المحتوى',
         headingFr: 'Contenu interdit',
         headingEn: 'Content responsibility',
@@ -224,7 +224,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'You (the publisher) are responsible for listing details, photos, and price. Content must be clear and not misleading. We may remove content or disable accounts for violations.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'المحتوى الممنوع (صارم)',
         headingFr: 'Contenu interdit (strict)',
         headingEn: 'Prohibited content (strict)',
@@ -250,7 +250,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
             '• Abusive/hate content or incitement.\n'
             '• Inappropriate images or privacy violations.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'الصفقات والتواصل',
         headingFr: 'Transactions & contact',
         headingEn: 'Transactions & contact',
@@ -261,7 +261,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'Buyer–seller contact is direct. The app does not guarantee the transaction and is not responsible for payment/delivery. Meet in a public place and verify items.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'VIP والإعلانات المروّجة',
         headingFr: 'VIP & promotions',
         headingEn: 'VIP & promotions',
@@ -272,7 +272,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'VIP is a promotional service subject to review/approval. We may refuse or stop VIP for policy violations. Duration and ranking depend on available packages.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'حدود المسؤولية',
         headingFr: 'Limitation de responsabilité',
         headingEn: 'Limitation of liability',
@@ -285,13 +285,13 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
       ),
     ],
   ),
-  TikkiPolicyArticle(
+  TkiiPolicyArticle(
     id: 'safety',
     titleAr: 'نصائح الأمان',
     titleFr: 'Conseils de sécurité',
     titleEn: 'Safety tips',
     sections: [
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'قبل اللقاء',
         headingFr: 'Avant la rencontre',
         headingEn: 'Before meeting',
@@ -302,7 +302,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
         bodyEn:
             'Verify details, request extra photos, and confirm price beforehand.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'مكان آمن',
         headingFr: 'Lieu sûr',
         headingEn: 'Safe place',
@@ -312,13 +312,13 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
       ),
     ],
   ),
-  TikkiPolicyArticle(
+  TkiiPolicyArticle(
     id: 'publishing',
     titleAr: 'قواعد النشر',
     titleFr: 'Règles de publication',
     titleEn: 'Publishing rules',
     sections: [
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'صور واضحة',
         headingFr: 'Photos claires',
         headingEn: 'Clear photos',
@@ -328,7 +328,7 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
             'Utilisez des photos réelles et évitez les images volées d\'internet.',
         bodyEn: 'Use clear real photos; avoid stolen internet images.',
       ),
-      TikkiContentSection(
+      TkiiContentSection(
         headingAr: 'عنوان صادق',
         headingFr: 'Titre honnête',
         headingEn: 'Honest title',
@@ -340,19 +340,19 @@ const List<TikkiPolicyArticle> tikkiPolicyArticles = [
   ),
 ];
 
-const List<TikkiContentSection> tikkiAboutSections = [
-  TikkiContentSection(
-    headingAr: 'ما هو Tikki؟',
-    headingFr: 'C\'est quoi Tikki ?',
-    headingEn: 'What is Tikki?',
+const List<TkiiContentSection> tikkiAboutSections = [
+  TkiiContentSection(
+    headingAr: 'ما هو Tkii؟',
+    headingFr: 'C\'est quoi Tkii ?',
+    headingEn: 'What is Tkii?',
     bodyAr:
-        'Tikki سوق سريع وبسيط للنشر والشراء في موريتانيا: منتجات، سيارات، عقارات، وخدمات.',
+        'Tkii سوق سريع وبسيط للنشر والشراء في موريتانيا: منتجات، سيارات، عقارات، وخدمات.',
     bodyFr:
-        'Tikki est un marché simple et rapide en Mauritanie: produits, autos, immobilier, services.',
+        'Tkii est un marché simple et rapide en Mauritanie: produits, autos, immobilier, services.',
     bodyEn:
-        'Tikki is a fast and simple marketplace for Mauritania: products, cars, real estate, services.',
+        'Tkii is a fast and simple marketplace for Mauritania: products, cars, real estate, services.',
   ),
-  TikkiContentSection(
+  TkiiContentSection(
     headingAr: 'كيف تشتري بأمان؟',
     headingFr: 'Acheter en sécurité',
     headingEn: 'Buy safely',
@@ -363,7 +363,7 @@ const List<TikkiContentSection> tikkiAboutSections = [
     bodyEn:
         'Check photos, ask details, meet in public, and avoid paying before verifying.',
   ),
-  TikkiContentSection(
+  TkiiContentSection(
     headingAr: 'فيديوهات (قريباً)',
     headingFr: 'Vidéos (bientôt)',
     headingEn: 'Videos (coming soon)',

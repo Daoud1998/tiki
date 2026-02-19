@@ -2,8 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/features/content/presentation/content_data.dart';
-
+import '../../../core/i18n/tikki_tr.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/mocks/promo_moderation.dart';
 import '../../../core/state/auth_state.dart';
@@ -22,7 +21,6 @@ class MyReceiptsScreen extends ConsumerStatefulWidget {
 }
 
 class _MyReceiptsScreenState extends ConsumerState<MyReceiptsScreen> {
-
   @override
   void initState() {
     super.initState();
@@ -82,7 +80,6 @@ class _MyReceiptsScreenState extends ConsumerState<MyReceiptsScreen> {
       }
     } catch (_) {}
   }
-
 
   bool _selectionMode = false;
   final Set<String> _selected = <String>{};

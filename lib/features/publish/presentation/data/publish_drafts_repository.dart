@@ -1,11 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tiki/core/storage/local_store.dart';
 
-import '../domain/publish_draft.dart';
+import '../../../../core/storage/local_store.dart';
+import '../domain/publish_draft.dart' as pd;
 
 abstract class PublishDraftsRepository {
-  Future<List<PublishDraft>> fetchAll();
-  Future<void> saveAll(List<PublishDraft> drafts);
+  Future<List<pd.PublishDraft>> fetchAll();
+  Future<void> saveAll(List<pd.PublishDraft> drafts);
 
   String? getLastDraftId();
   Future<void> setLastDraftId(String? id);
@@ -23,13 +23,13 @@ class LocalPublishDraftsRepository implements PublishDraftsRepository {
   final LocalStore _store;
 
   @override
-  Future<List<PublishDraft>> fetchAll() async {
-    return PublishDraft.decodeList(_store.getPublishDraftsJson());
+  Future<List<pd.PublishDraft>> fetchAll() async {
+    return pd.PublishDraft.decodeList(_store.getPublishDraftsJson());
   }
 
   @override
-  Future<void> saveAll(List<PublishDraft> drafts) async {
-    final json = PublishDraft.encodeList(drafts);
+  Future<void> saveAll(List<pd.PublishDraft> drafts) async {
+    final json = pd.PublishDraft.encodeList(drafts);
     await _store.setPublishDraftsJson(json);
   }
 

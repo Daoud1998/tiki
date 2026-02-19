@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/app/localization/l10n.dart';
-import 'package:tiki/core/utils/helper.dart';
+
+import '../../app/localization/l10n.dart';
+import '../utils/helper.dart';
 
 /// Reusable, Temu-like header row: search pill (optionally with camera).
 ///
 /// RTL note:
 /// This widget respects [Directionality]. Avoid forcing LTR layout here.
-class TikkiSearchLangBar extends StatelessWidget {
-  const TikkiSearchLangBar({
+class TkiiSearchLangBar extends StatelessWidget {
+  const TkiiSearchLangBar({
     super.key,
     required this.hint,
     this.padding = const EdgeInsetsDirectional.fromSTEB(14, 8, 14, 6),
@@ -50,6 +51,20 @@ class TikkiSearchLangBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Backwards-compatible name (common spelling).
+/// Some screens refer to `TikkiSearchLangBar` while this file historically
+/// used `TkiiSearchLangBar`. Keeping both avoids breaking builds.
+class TikkiSearchLangBar extends TkiiSearchLangBar {
+  const TikkiSearchLangBar({
+    super.key,
+    required super.hint,
+    super.padding,
+    super.showCameraButton,
+    super.onSearchTap,
+    super.onCameraTap,
+  });
 }
 
 class _TemuSearchPill extends StatelessWidget {

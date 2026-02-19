@@ -8,17 +8,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:tiki/core/constants/support_contacts.dart';
-import 'package:tiki/features/notifications/domain/app_notification.dart';
-import 'package:tiki/features/notifications/presentation/notifications_controller.dart';
-import 'package:tiki/features/product/data/products_repository.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/publish/presentation/domain/publish_draft.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../core/constants/support_contacts.dart';
 import '../../../core/data/ma_catalog.dart';
 import '../../../core/data/ma_suggestions.dart';
 import '../../../core/data/ma_model_suggestions.dart';
@@ -31,6 +26,11 @@ import '../../kyc/data/kyc_settings_repository.dart' as kyc_settings;
 import '../../kyc/domain/kyc_models.dart' as kyc_models;
 import '../../kyc/state/kyc_controller.dart' as kyc_state;
 
+import '../../notifications/domain/app_notification.dart';
+import '../../notifications/presentation/notifications_controller.dart';
+import '../../product/data/products_repository.dart';
+import '../../product/domain/app_product.dart';
+import 'domain/publish_draft.dart';
 import 'publish_drafts_controller.dart';
 
 // UI helper for localized labels stored as L10n3.
@@ -54,12 +54,13 @@ class _PublishWizardScreenState extends ConsumerState<PublishWizardScreen> {
 
   final _pageCtl = PageController();
   int _step = 0;
-  static const int _maxStep = 4;
+  static const int _maxStep = 5;
 
   // Form keys
   final _basicKey = GlobalKey<FormState>();
   final _contactKey = GlobalKey<FormState>();
   final _locationKey = GlobalKey<FormState>();
+  final _categoryKey = GlobalKey<FormState>();
 
   // Controllers
   final _titleCtl = TextEditingController();
@@ -322,7 +323,9 @@ Verify your account to publish instantly.''',
       step: _step,
       createdAtMs: existing?.createdAtMs ?? now,
       updatedAtMs: now,
-      schemaVersion: existing?.schemaVersion ?? 1,
+      schemaVersion: (existing?.schemaVersion ?? 1) < 2
+          ? 2
+          : (existing?.schemaVersion ?? 1),
       data: _buildDraftData(),
     );
 
@@ -362,7 +365,7 @@ Verify your account to publish instantly.''',
         step: 0,
         createdAtMs: now,
         updatedAtMs: now,
-        schemaVersion: 1,
+        schemaVersion: 2,
         data: const <String, dynamic>{},
       );
       await ctl.upsert(d);
@@ -567,11 +570,13 @@ Verify your account to publish instantly.''',
     // Force sanitization after apply.
     _normalizeAttrsForSelection();
 
-    // Restore wizard step
-    _step = draft.step.clamp(0, _maxStep);
+    // Restore wizard step.
+    // Important: Always start from Category (step 0) so the user can confirm
+    // category/subcategory before photos & other fields (and to compute limits).
+    _step = 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _goTo(_step);
+      _goTo(0);
     });
   }
 
@@ -1451,6 +1456,7 @@ Verify your account to publish instantly.''',
       'location_note',
       'wilaya_id',
       'moughataa_id',
+      'neighborhood_id',
       // Promo/system keys (if any)
       'promo_status',
       'promo_pkg_id',
@@ -1693,11 +1699,22 @@ Verify your account to publish instantly.''',
       en: 'Pick from the list or type manually',
     );
 
-    // Requirement: base Nouakchott/Nouadhibou neighborhoods on the chosen moughataa.
-    final mid = _moughataa?.id;
-    final wid = _wilaya?.id;
+    // Nouakchott + Nouadhibou: neighborhoods depend on the chosen moughataa.
+    final mid = (_moughataa?.id ?? '').trim();
+    final wid = (_wilaya?.id ?? '').trim();
+    final needsMoughataa =
+        wid.startsWith('nouakchott_') || wid == 'dakhlet_nouadhibou';
 
-    final list = (mid == null || mid.trim().isEmpty)
+    if (needsMoughataa && mid.isEmpty) {
+      _snack(_tr(
+        ar: 'اختر المقاطعة أولاً لتظهر الأحياء',
+        fr: 'Choisissez d’abord la moughataa pour afficher les quartiers',
+        en: 'Choose a moughataa first to see neighborhoods',
+      ));
+      return;
+    }
+
+    final list = mid.isEmpty
         ? const <MaSuggestion>[]
         : neighborhoodSuggestionsFor(wilayaId: wid, moughataaId: mid);
 
@@ -1707,34 +1724,58 @@ Verify your account to publish instantly.''',
         hint: hint,
         initialValue: _neighborhoodCtl.text.trim(),
         onSaved: (v) => _setStateAndSave(() {
-          _neighborhoodCtl.text = v.trim();
+          final vv = v.trim();
+          _neighborhoodCtl.text = vv;
+          // Manual entry => no stable id
+          _attrs.remove('neighborhood_id');
         }),
       );
       return;
     }
 
-    final picked = await _openSuggestionPicker(
+    final pickedLabel = await _openSuggestionPicker(
       title: title,
       suggestions: list,
       initialQuery: _neighborhoodCtl.text.trim(),
     );
 
-    if (!mounted || picked == null) return;
+    if (!mounted || pickedLabel == null) return;
 
-    if (picked == _kManualPick) {
+    if (pickedLabel == _kManualPick) {
       await _openManualEntry(
         title: title,
         hint: hint,
         initialValue: _neighborhoodCtl.text.trim(),
         onSaved: (v) => _setStateAndSave(() {
-          _neighborhoodCtl.text = v.trim();
+          final vv = v.trim();
+          _neighborhoodCtl.text = vv;
+          _attrs.remove('neighborhood_id');
         }),
       );
       return;
     }
 
     _setStateAndSave(() {
-      _neighborhoodCtl.text = picked.trim();
+      final vv = pickedLabel.trim();
+      _neighborhoodCtl.text = vv;
+
+      // Save stable neighborhood id when the pick matches a known suggestion.
+      final q = MaSuggestionNorm.norm(vv);
+      MaSuggestion? sel;
+      for (final s in list) {
+        final ar = MaSuggestionNorm.norm(s.label.ar);
+        final fr = MaSuggestionNorm.norm(s.label.fr);
+        final en = MaSuggestionNorm.norm(s.label.en);
+        if (q == ar || q == fr || q == en) {
+          sel = s;
+          break;
+        }
+      }
+      if (sel != null) {
+        _attrs['neighborhood_id'] = sel.id;
+      } else {
+        _attrs.remove('neighborhood_id');
+      }
     });
   }
 
@@ -1814,12 +1855,13 @@ Verify your account to publish instantly.''',
       if (!mounted) return;
       if (items.isEmpty) return;
 
-      final remaining = 10 - _images.length;
+      final max = _photoMaxForSelection();
+      final remaining = max - _images.length;
       if (remaining <= 0) {
         _snack(_tr(
-            ar: 'بلغت الحد الأقصى للصور (10)',
-            fr: 'Limite atteinte (10)',
-            en: 'Max images reached (10)'));
+            ar: 'بلغت الحد الأقصى للصور ($max)',
+            fr: 'Limite atteinte ($max)',
+            en: 'Max images reached ($max)'));
         return;
       }
 
@@ -1840,11 +1882,12 @@ Verify your account to publish instantly.''',
 
   Future<void> _pickFromCamera() async {
     try {
-      if (_images.length >= 10) {
+      final max = _photoMaxForSelection();
+      if (_images.length >= max) {
         _snack(_tr(
-            ar: 'بلغت الحد الأقصى للصور (10)',
-            fr: 'Limite atteinte (10)',
-            en: 'Max images reached (10)'));
+            ar: 'بلغت الحد الأقصى للصور ($max)',
+            fr: 'Limite atteinte ($max)',
+            en: 'Max images reached ($max)'));
         return;
       }
 
@@ -1948,20 +1991,50 @@ Verify your account to publish instantly.''',
   }
 
   bool _validateStep(int step) {
-    // 0: media (images optional)
+    // 0: category
     if (step == 0) {
-      if (_images.isEmpty) {
+      if (_category == null || _subCategory == null) {
         _snack(_tr(
-          ar: 'يفضل إضافة صورة لزيادة فرص البيع',
-          fr: 'Ajoutez une image pour mieux vendre',
-          en: 'Add a photo to sell faster',
-        ));
+            ar: 'اختر الفئة أولاً',
+            fr: 'Choisissez d\'abord la catégorie',
+            en: 'Choose a category first'));
+        return false;
       }
       return true;
     }
 
-    // 1: basic
+    // 1: media (min/max depends on category)
     if (step == 1) {
+      final max = _photoMaxForSelection();
+      if (_images.length > max) {
+        _snack(_tr(
+            ar: 'عدد الصور أكبر من الحد المسموح ($max)',
+            fr: 'Trop de photos (max $max)',
+            en: 'Too many photos (max $max)'));
+        return false;
+      }
+
+      final kind = publishKindFor(
+        categoryId: _category?.id,
+        subCategoryId: _subCategory?.id,
+      );
+      final requiresPhoto =
+          kind != PublishKind.jobs && kind != PublishKind.services;
+
+      if (requiresPhoto && _images.isEmpty) {
+        _snack(_tr(
+          ar: 'أضف صورة واحدة على الأقل',
+          fr: 'Ajoutez au moins une photo',
+          en: 'Add at least one photo',
+        ));
+        return false;
+      }
+
+      return true;
+    }
+
+    // 2: basic
+    if (step == 2) {
       if (!(_basicKey.currentState?.validate() ?? false)) {
         _snack(_tr(
           ar: 'أكمل الحقول المطلوبة',
@@ -1977,11 +2050,22 @@ Verify your account to publish instantly.''',
             en: 'Choose a category'));
         return false;
       }
+
+      // If category changed after adding photos, enforce max again.
+      final maxPhotos = _photoMaxForSelection();
+      if (_images.length > maxPhotos) {
+        _snack(_tr(
+            ar: 'عدد الصور أكبر من الحد المسموح ($maxPhotos)',
+            fr: 'Trop de photos (max $maxPhotos)',
+            en: 'Too many photos (max $maxPhotos)'));
+        return false;
+      }
+
       return true;
     }
 
-    // 2: location
-    if (step == 2) {
+    // 3: location
+    if (step == 3) {
       final formOk = (_locationKey.currentState?.validate() ?? true);
       final ok = _outsideMa
           ? (formOk && _outsideCountry != null)
@@ -1997,8 +2081,8 @@ Verify your account to publish instantly.''',
       return true;
     }
 
-    // 3: contact
-    if (step == 3) {
+    // 4: contact
+    if (step == 4) {
       final ok = (_contactKey.currentState?.validate() ?? true) &&
           _phoneCtl.text.trim().isNotEmpty;
       if (!ok) {
@@ -2019,8 +2103,9 @@ Verify your account to publish instantly.''',
       }
       return true;
     }
-    // 4: preview (no validation)
-    if (step == 4) return true;
+
+    // 5: preview
+    if (step == 5) return true;
 
     return true;
   }
@@ -2377,6 +2462,7 @@ Verify your account to publish instantly.''',
       // Ensure MR location ids are not set when publishing abroad.
       attrsForSave.remove('wilaya_id');
       attrsForSave.remove('moughataa_id');
+      attrsForSave.remove('neighborhood_id');
 
       attrsForSave['outside_ma'] = 'true';
       if (cc != null) {
@@ -3186,6 +3272,7 @@ Verify your account to publish instantly next time.''',
                     controller: _pageCtl,
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
+                      _stepCategory(cs),
                       _stepMedia(cs),
                       _stepBasic(cs),
                       _stepLocation(cs),
@@ -3405,6 +3492,171 @@ Verify your account to publish instantly next time.''',
     );
   }
 
+  int _photoMaxForSelection() {
+    final kind = publishKindFor(
+      categoryId: _category?.id,
+      subCategoryId: _subCategory?.id,
+    );
+    if (kind == PublishKind.jobs || kind == PublishKind.services) return 3;
+    if (kind == PublishKind.vehicles || kind == PublishKind.realEstate)
+      return 15;
+    return 10;
+  }
+
+  String _photoPolicyHint() {
+    final max = _photoMaxForSelection();
+    final kind = publishKindFor(
+      categoryId: _category?.id,
+      subCategoryId: _subCategory?.id,
+    );
+    if (kind == PublishKind.jobs || kind == PublishKind.services) {
+      return _tr(
+        ar: 'الصور اختيارية لهذا النوع (حتى $max صور).',
+        fr: "Photos optionnelles pour ce type (max $max).",
+        en: 'Photos are optional for this type (max $max).',
+      );
+    }
+    if (kind == PublishKind.vehicles || kind == PublishKind.realEstate) {
+      return _tr(
+        ar: 'يمكنك إضافة حتى $max صورة (يفضل 5 صور أو أكثر).',
+        fr: "Jusqu'à $max photos (5+ recommandées).",
+        en: 'Up to $max photos (5+ recommended).',
+      );
+    }
+    return _tr(
+      ar: 'يمكنك إضافة حتى $max صور.',
+      fr: "Jusqu'à $max photos.",
+      en: 'You can add up to $max photos.',
+    );
+  }
+
+  Widget _stepCategory(ColorScheme cs) {
+    final categories = maCategories.where((c) => c.id != '__na__').toList();
+    final cat = _category?.name.of(context);
+    final sub = _subCategory?.name.of(context);
+    final has = (cat != null && sub != null);
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 120),
+      children: [
+        _tipCard(
+          cs: cs,
+          asset: 'assets/illustrations/publish/checklist.svg',
+          title: _tr(
+              ar: 'اختر الفئة أولاً',
+              fr: 'Choisissez la catégorie',
+              en: 'Pick category first'),
+          subtitle: _tr(
+            ar: 'بعد اختيار الفئة سنعرض لك خيارات مناسبة (مثل التوصيل/الضمان وحد الصور).',
+            fr: 'Après le choix, nous adaptons les options (livraison, garantie, limites photos).',
+            en: 'After selecting, we adapt options (delivery, warranty, photo limits).',
+          ),
+        ),
+        _card(
+          child: Form(
+            key: _categoryKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _tr(ar: 'التصنيف', fr: 'Catégorie', en: 'Category'),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 16),
+                ),
+                const SizedBox(height: 12),
+                FormField<String>(
+                  validator: (_) {
+                    if (_category == null || _subCategory == null) {
+                      return _tr(ar: 'مطلوب', fr: 'Requis', en: 'Required');
+                    }
+                    return null;
+                  },
+                  builder: (state) {
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () async {
+                        final picked = await _pickCategoryAndSub(categories);
+                        if (!mounted || picked == null) return;
+                        setState(() {
+                          final prevCatId = _category?.id;
+                          final prevSubId = _subCategory?.id;
+                          final changedCat = (prevCatId != picked.category.id);
+                          final changedSub = (prevSubId != picked.sub.id);
+
+                          _category = picked.category;
+                          _subCategory = picked.sub;
+
+                          _wipeOnCategoryOrSubChange(
+                            changedMainCategory: changedCat,
+                            changedSubCategory: changedSub,
+                          );
+
+                          final max = _photoMaxForSelection();
+                          if (_images.length > max) {
+                            _images.removeRange(max, _images.length);
+                          }
+                        });
+                        state.validate();
+                      },
+                      child: InputDecorator(
+                        decoration: _decor(
+                          label: _tr(
+                              ar: 'الفئة والفئة الفرعية *',
+                              fr: 'Catégorie & sous-catégorie *',
+                              en: 'Category & subcategory *'),
+                          hint: _tr(
+                            ar: 'اضغط للاختيار',
+                            fr: 'Appuyez pour choisir',
+                            en: 'Tap to choose',
+                          ),
+                          prefixIcon: const Icon(Icons.category_outlined),
+                        ).copyWith(errorText: state.errorText),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                has
+                                    ? '$cat  •  $sub'
+                                    : _tr(
+                                        ar: 'اضغط للاختيار',
+                                        fr: 'Choisir',
+                                        en: 'Tap to choose'),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: has ? null : cs.onSurfaceVariant,
+                                  fontWeight:
+                                      has ? FontWeight.w800 : FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.keyboard_arrow_down_rounded),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  has
+                      ? _photoPolicyHint()
+                      : _tr(
+                          ar: 'اختر الفئة لمعرفة حد الصور.',
+                          fr: 'Choisissez pour voir la limite.',
+                          en: 'Pick a category to see limits.'),
+                  style: TextStyle(
+                      color: cs.onSurface.withAlpha(170),
+                      fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _stepMedia(ColorScheme cs) {
     return ListView(
       padding: const EdgeInsets.only(bottom: 120),
@@ -3437,21 +3689,24 @@ Verify your account to publish instantly next time.''',
                     ),
                   ),
                   FilledButton.tonalIcon(
-                    onPressed: _openMediaSheet,
+                    onPressed: (_category == null ? null : _openMediaSheet),
                     icon: const Icon(Icons.add_a_photo_outlined),
                     label: Text(_tr(ar: 'إضافة', fr: 'Ajouter', en: 'Add')),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              Text(
-                _tr(
-                  ar: 'إضافة صورة تزيد فرص ظهور منتجك 🔥 (اختياري)',
-                  fr: 'Une photo améliore la visibilité (optionnel).',
-                  en: 'A photo boosts visibility (optional).',
-                ),
-                style: TextStyle(color: cs.onSurface.withAlpha(170)),
-              ),
+              Builder(builder: (context) {
+                final max = _photoMaxForSelection();
+                return Text(
+                  _tr(
+                    ar: 'الحد الأقصى للصور: $max',
+                    fr: 'Maximum de photos: $max',
+                    en: 'Max photos: $max',
+                  ),
+                  style: TextStyle(color: cs.onSurface.withAlpha(170)),
+                );
+              }),
               const SizedBox(height: 12),
               if (_images.isEmpty)
                 Container(
@@ -4580,6 +4835,10 @@ Verify your account to publish instantly next time.''',
         ? _subOtherCtl.text.trim()
         : rawSub;
 
+    final needsMoughataa = !_outsideMa &&
+        (((_wilaya?.id ?? '').trim().startsWith('nouakchott_')) ||
+            ((_wilaya?.id ?? '').trim() == 'dakhlet_nouadhibou'));
+
     return ListView(padding: const EdgeInsets.only(bottom: 120), children: [
       _tipCard(
         cs: cs,
@@ -4669,6 +4928,10 @@ Verify your account to publish instantly next time.''',
                 onChanged: (v) => setState(() {
                   _wilaya = v;
                   _moughataa = null;
+                  _neighborhoodCtl.clear();
+                  _attrs.remove('wilaya_id');
+                  _attrs.remove('moughataa_id');
+                  _attrs.remove('neighborhood_id');
                 }),
                 validator: (v) => (v == null)
                     ? _tr(ar: 'مطلوب', fr: 'Requis', en: 'Required')
@@ -4679,15 +4942,27 @@ Verify your account to publish instantly next time.''',
                 key: ValueKey('moughataa_${_wilaya?.id ?? "none"}'),
                 initialValue: _moughataa,
                 decoration: _decor(
-                  label: _tr(
-                    ar: 'المقاطعة (اختياري)',
-                    fr: 'Moughataa (optionnel)',
-                    en: 'Moughataa (optional)',
-                  ),
-                  hint: _tr(
-                      ar: 'اختياري: اختر المقاطعة إذا كانت متوفرة',
-                      fr: 'Optionnel: choisissez la moughataa si disponible',
-                      en: 'Optional: choose moughataa if available'),
+                  label: needsMoughataa
+                      ? _tr(
+                          ar: 'المقاطعة *',
+                          fr: 'Moughataa *',
+                          en: 'Moughataa *')
+                      : _tr(
+                          ar: 'المقاطعة (اختياري)',
+                          fr: 'Moughataa (optionnel)',
+                          en: 'Moughataa (optional)',
+                        ),
+                  hint: needsMoughataa
+                      ? _tr(
+                          ar: 'اختر المقاطعة لتظهر الأحياء',
+                          fr: 'Choisissez la moughataa pour afficher les quartiers',
+                          en: 'Select moughataa to see neighborhoods',
+                        )
+                      : _tr(
+                          ar: 'اختياري: اختر المقاطعة إذا كانت متوفرة',
+                          fr: 'Optionnel: choisissez la moughataa si disponible',
+                          en: 'Optional: choose moughataa if available',
+                        ),
                   prefixIcon: const Icon(Icons.map_outlined),
                 ),
                 isExpanded: true,
@@ -4700,7 +4975,18 @@ Verify your account to publish instantly next time.''',
                         .map((m) => DropdownMenuItem(
                             value: m, child: Text(m.name.of(context))))
                         .toList(growable: false),
-                onChanged: (v) => setState(() => _moughataa = v),
+                onChanged: (v) => setState(() {
+                  _moughataa = v;
+                  _neighborhoodCtl.clear();
+                  _attrs.remove('moughataa_id');
+                  _attrs.remove('neighborhood_id');
+                }),
+                validator: (v) {
+                  if (!needsMoughataa) return null;
+                  if (v == null)
+                    return _tr(ar: 'مطلوب', fr: 'Requis', en: 'Required');
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -4710,10 +4996,17 @@ Verify your account to publish instantly next time.''',
                 decoration: _decor(
                   label: _tr(
                       ar: 'الحي/المنطقة', fr: 'Quartier', en: 'Neighborhood'),
-                  hint: _tr(
-                      ar: 'مثال: تفرغ زينة / عرفات',
-                      fr: 'Ex: Tevragh Zeina / Arafat',
-                      en: 'e.g. Tevragh Zeina / Arafat'),
+                  hint: (needsMoughataa && _moughataa == null)
+                      ? _tr(
+                          ar: 'اختر المقاطعة أولاً',
+                          fr: 'Choisissez d’abord la moughataa',
+                          en: 'Choose a moughataa first',
+                        )
+                      : _tr(
+                          ar: 'مثال: تفرغ زينة / عرفات',
+                          fr: 'Ex: Tevragh Zeina / Arafat',
+                          en: 'e.g. Tevragh Zeina / Arafat',
+                        ),
                   prefixIcon: const Icon(Icons.home_work_outlined),
                   suffixIcon: const Icon(Icons.keyboard_arrow_down_rounded),
                 ),
@@ -4846,9 +5139,9 @@ Verify your account to publish instantly next time.''',
                       _ToggleTile(
                         icon: Icons.local_shipping_outlined,
                         title: _tr(
-                          ar: 'توصيل عبر Tikki (اختياري)',
-                          fr: 'Livraison via Tikki (opt.)',
-                          en: 'Delivery via Tikki (optional)',
+                          ar: 'توصيل عبر Tkii (اختياري)',
+                          fr: 'Livraison via Tkii (opt.)',
+                          en: 'Delivery via Tkii (optional)',
                         ),
                         value: _deliveryEnabled,
                         onChanged: (v) => _setStateAndSave(() {
@@ -5415,6 +5708,7 @@ class _Header extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     final allLabels = <String>[
+      _tr(context, ar: 'التصنيف', fr: 'Catégorie', en: 'Category'),
       _tr(context, ar: 'الصور', fr: 'Photos', en: 'Photos'),
       _tr(context, ar: 'المعلومات', fr: 'Infos', en: 'Info'),
       _tr(context, ar: 'الموقع', fr: 'Lieu', en: 'Location'),

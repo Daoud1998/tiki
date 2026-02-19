@@ -47,7 +47,7 @@ class AppStrings {
     return s;
   }
 
-  String get appName => 'TIKI';
+  String get appName => 'Tki';
 
   String get searchHint => tr('search.hint');
 

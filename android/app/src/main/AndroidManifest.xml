@@ -36,7 +36,7 @@
     </queries>
 
     <application
-        android:label="Tiki"
+        android:label="Tkii"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

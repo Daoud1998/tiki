@@ -107,7 +107,7 @@ class _IntroCard extends StatelessWidget {
 
 class _Section extends StatelessWidget {
   const _Section({required this.section});
-  final TikkiContentSection section;
+  final TkiiContentSection section;
 
   @override
   Widget build(BuildContext context) {

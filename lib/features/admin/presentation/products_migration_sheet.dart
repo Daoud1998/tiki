@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:tiki/app/localization/l10n.dart';
-import 'package:tiki/features/admin/data/products_migrator.dart';
+
+
+import '../../../app/localization/l10n.dart';
+import '../data/products_migrator.dart';
 
 String _pick3(AppStrings s,
     {required String ar, required String fr, required String en}) {

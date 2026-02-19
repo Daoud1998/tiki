@@ -62,23 +62,72 @@ bool supportsConditionFor({
   return true;
 }
 
-/// Warranty is usually relevant for electronics, vehicles parts, appliances, and tools.
-bool supportsWarrantyFor({
+/// Delivery/shipping is not relevant for jobs/services/real estate, and for most vehicles.
+/// We still allow delivery for small items like vehicle parts.
+bool supportsDeliveryFor({
   required String? categoryId,
   required String? subCategoryId,
 }) {
   final cat = (categoryId ?? '').trim();
   final sub = (subCategoryId ?? '').trim();
-  if (cat == 'electronics') return true;
-  if (cat == 'tools') return true;
-  if (cat == 'home' && (sub == 'appliances' || sub == 'renovation')) {
-    return true;
+
+  final kind =
+      publishKindFor(categoryId: categoryId, subCategoryId: subCategoryId);
+
+  if (kind == PublishKind.realEstate) return false;
+  if (kind == PublishKind.services) return false;
+  if (kind == PublishKind.jobs) return false;
+
+  // Vehicles: allow only "parts" (everything else is pickup only).
+  if (kind == PublishKind.vehicles) {
+    if (sub == 'parts') return true;
+    return false;
   }
-  if (cat == 'vehicles' &&
-      (sub == 'parts' || sub == 'cars' || sub == 'suv4x4' || sub == 'trucks')) {
-    return true;
+
+  // Defensive fallback if ids change or a client stores free-form strings.
+  final c = cat.toLowerCase();
+  final s = sub.toLowerCase();
+  if (c.contains('real_estate') || c.contains('immobilier')) return false;
+  if (c.contains('service') || s.contains('service')) return false;
+  if (c.contains('job') || s.contains('job') || s.startsWith('jobs_'))
+    return false;
+
+  return true;
+}
+
+/// Warranty (guarantee) is relevant for physical goods, but **not** for
+/// jobs/services/real-estate/vehicles (pickup & contracts differ), and not for
+/// promo/offer-style listings.
+bool supportsWarrantyFor({
+  required String? categoryId,
+  required String? subCategoryId,
+}) {
+  final kind =
+      publishKindFor(categoryId: categoryId, subCategoryId: subCategoryId);
+
+  // Not eligible categories.
+  if (kind == PublishKind.jobs) return false;
+  if (kind == PublishKind.services) return false;
+  if (kind == PublishKind.realEstate) return false;
+  if (kind == PublishKind.vehicles) return false;
+  if (kind == PublishKind.agri) return false;
+
+  final cat = (categoryId ?? '').trim().toLowerCase();
+  final sub = (subCategoryId ?? '').trim().toLowerCase();
+
+  // Defensive exclusions for legacy/free-form ids.
+  if (cat.contains('job') || sub.contains('job')) return false;
+  if (cat.contains('service') || sub.contains('service')) return false;
+  if (cat.contains('real_estate') || cat.contains('immobilier')) return false;
+  if (cat.contains('vehicle') || cat.contains('car') || sub.contains('car')) {
+    return false;
   }
-  return false;
+  if (cat.contains('promo') || cat.contains('offer') || sub.contains('offer')) {
+    return false;
+  }
+
+  // Default: physical goods.
+  return true;
 }
 
 /// Returns a list of "type/variant" options for the selected (category/subcategory).

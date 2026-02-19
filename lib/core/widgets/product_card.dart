@@ -4,11 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/core/utils/helper.dart';
-import 'package:tiki/core/mocks/promo_moderation.dart';
-import 'package:tiki/core/data/ma_catalog.dart';
-import 'package:tiki/core/data/ma_locations.dart';
+import '../data/ma_catalog.dart';
+import '../data/ma_locations.dart';
+import '../mocks/promo_moderation.dart';
 import '../state/likes_controller.dart';
+import '../utils/helper.dart';
 
 enum ProductCardVariant { feed, trending, grid, compact }
 
@@ -158,7 +158,7 @@ class ProductCard extends ConsumerWidget {
   String _vipBadgeText(BuildContext context) {
     final p = product;
     if (p is dynamic) return PromoModeration.promoBadgeText(context, p);
-    return 'VIP';
+    return 'مميّز';
   }
 
   @override

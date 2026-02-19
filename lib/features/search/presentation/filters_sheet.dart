@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/data/ma_catalog.dart';
+import '../../../core/data/ma_neighborhood_suggestions.dart';
+import '../../../core/data/ma_suggestions.dart';
 
 enum SearchSort { newest, priceLow, priceHigh, oldest }
 
@@ -11,6 +13,8 @@ class SearchFilters {
   const SearchFilters({
     this.wilayaId,
     this.moughataaId,
+    this.neighborhoodId,
+    this.neighborhood,
     this.minPrice,
     this.maxPrice,
     this.categoryId,
@@ -20,6 +24,8 @@ class SearchFilters {
 
   final String? wilayaId;
   final String? moughataaId;
+  final String? neighborhood;
+  final String? neighborhoodId;
   final int? minPrice;
   final int? maxPrice;
   final String? categoryId;
@@ -29,6 +35,8 @@ class SearchFilters {
   SearchFilters copyWith({
     String? wilayaId,
     String? moughataaId,
+    String? neighborhoodId,
+    String? neighborhood,
     int? minPrice,
     int? maxPrice,
     String? categoryId,
@@ -38,6 +46,8 @@ class SearchFilters {
     return SearchFilters(
       wilayaId: wilayaId ?? this.wilayaId,
       moughataaId: moughataaId ?? this.moughataaId,
+      neighborhoodId: neighborhoodId ?? this.neighborhoodId,
+      neighborhood: neighborhood ?? this.neighborhood,
       minPrice: minPrice ?? this.minPrice,
       maxPrice: maxPrice ?? this.maxPrice,
       categoryId: categoryId ?? this.categoryId,
@@ -78,6 +88,8 @@ class _FiltersSheet extends StatefulWidget {
 class _FiltersSheetState extends State<_FiltersSheet> {
   late String? wilayaId = widget.initial.wilayaId;
   late String? moughataaId = widget.initial.moughataaId;
+  late String? neighborhoodId = widget.initial.neighborhoodId;
+  final _neighborhoodCtrl = TextEditingController();
   late String? categoryId = widget.initial.categoryId;
   late String? subCategoryId = widget.initial.subCategoryId;
   late SearchSort sort = widget.initial.sort;
@@ -92,14 +104,13 @@ class _FiltersSheetState extends State<_FiltersSheet> {
   @override
   void initState() {
     super.initState();
+    _neighborhoodCtrl.text = (widget.initial.neighborhood ?? '').toString();
     _minCtrl.text = widget.initial.minPrice?.toString() ?? '';
     _maxCtrl.text = widget.initial.maxPrice?.toString() ?? '';
 
-    final rawMax = (widget.maxPriceHint ?? 0).clamp(0, 100000000);
-    // If no hint is supplied, keep a sensible max.
-    final defaultMax = rawMax <= 0 ? 250000 : rawMax;
-    // Round up a bit to make the slider feel nicer.
-    _rangeMax = _roundUp(defaultMax.toDouble(), step: 5000);
+    const hardMax = 10000000;
+    // Slider upper bound is fixed to 10,000,000 MRU.
+    _rangeMax = hardMax.toDouble();
 
     final initMin = (widget.initial.minPrice ?? 0).clamp(0, _rangeMax.toInt());
     final initMax = (widget.initial.maxPrice ?? _rangeMax.toInt())
@@ -111,6 +122,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
 
   @override
   void dispose() {
+    _neighborhoodCtrl.dispose();
     _minCtrl.dispose();
     _maxCtrl.dispose();
     super.dispose();
@@ -119,6 +131,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context);
+    final isAr = locale.languageCode.toLowerCase() == 'ar';
     final cs = Theme.of(context).colorScheme;
 
     final selectedWilaya = wilayaId == null ? null : findWilayaById(wilayaId!);
@@ -167,6 +180,8 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                     setState(() {
                       wilayaId = null;
                       moughataaId = null;
+                      neighborhoodId = null;
+                      _neighborhoodCtrl.text = '';
                       categoryId = null;
                       subCategoryId = null;
                       sort = SearchSort.newest;
@@ -186,6 +201,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
             _ActiveChips(
               wilayaId: wilayaId,
               moughataaId: moughataaId,
+              neighborhood: _neighborhoodCtrl.text.trim().isEmpty
+                  ? null
+                  : _neighborhoodCtrl.text.trim(),
               categoryId: categoryId,
               subCategoryId: subCategoryId,
               sort: sort,
@@ -200,6 +218,12 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                       break;
                     case _ChipKind.moughataa:
                       moughataaId = null;
+                      neighborhoodId = null;
+                      _neighborhoodCtrl.text = '';
+                      break;
+                    case _ChipKind.neighborhood:
+                      neighborhoodId = null;
+                      _neighborhoodCtrl.text = '';
                       break;
                     case _ChipKind.category:
                       categoryId = null;
@@ -252,6 +276,8 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                 setState(() {
                   wilayaId = v;
                   moughataaId = null; // reset
+                  neighborhoodId = null;
+                  _neighborhoodCtrl.text = '';
                 });
               },
             ),
@@ -277,8 +303,77 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                   ),
                 ),
               ],
-              onChanged: (v) => setState(() => moughataaId = v),
+              onChanged: (v) {
+                setState(() {
+                  moughataaId = v;
+                  neighborhoodId = null;
+                  _neighborhoodCtrl.text = '';
+                });
+              },
             ),
+
+            const SizedBox(height: 10),
+            // Neighborhood (Nouakchott + Nouadhibou)
+            Builder(builder: (context) {
+              final wId = (wilayaId ?? '').trim();
+              final mId = (moughataaId ?? '').trim();
+              final showNeighborhood =
+                  wId.startsWith('nouakchott_') || wId == 'dakhlet_nouadhibou';
+
+              if (!showNeighborhood) return const SizedBox.shrink();
+
+              final label = _tr(context,
+                  ar: 'الحي/المنطقة', fr: 'Quartier', en: 'Neighborhood');
+              final hint = (mId.isEmpty)
+                  ? _tr(context,
+                      ar: 'اختر المقاطعة أولاً',
+                      fr: 'Choisissez d’abord la moughataa',
+                      en: 'Choose moughataa first')
+                  : _tr(context,
+                      ar: 'اختر من القائمة أو اكتب يدوياً',
+                      fr: 'Choisissez ou saisissez',
+                      en: 'Pick or type');
+
+              return TextFormField(
+                controller: _neighborhoodCtrl,
+                readOnly: true,
+                onTap: () async {
+                  if (mId.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(_tr(context,
+                            ar: 'اختر المقاطعة أولاً',
+                            fr: 'Choisissez d’abord la moughataa',
+                            en: 'Choose moughataa first')),
+                        duration: const Duration(milliseconds: 1200),
+                      ),
+                    );
+                    return;
+                  }
+                  await _pickNeighborhood(context);
+                },
+                decoration: InputDecoration(
+                  labelText: label,
+                  hintText: hint,
+                  prefixIcon: const Icon(Icons.home_work_outlined),
+                  suffixIcon: _neighborhoodCtrl.text.trim().isEmpty
+                      ? const Icon(Icons.keyboard_arrow_down_rounded)
+                      : IconButton(
+                          tooltip: _tr(context,
+                              ar: 'مسح', fr: 'Effacer', en: 'Clear'),
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () {
+                            setState(() {
+                              neighborhoodId = null;
+                              _neighborhoodCtrl.text = '';
+                            });
+                          },
+                        ),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              );
+            }),
 
             const SizedBox(height: 16),
 
@@ -294,9 +389,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
               ),
               child: Column(
                 children: [
-                  // ✅ Force the numeric UI to LTR so MRU numbers and sliders stay consistent in Arabic.
+                  // Price direction: Arabic shows min on the RIGHT (RTL); others LTR.
                   Directionality(
-                    textDirection: TextDirection.ltr,
+                    textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
                     child: Column(
                       children: [
                         Row(
@@ -318,7 +413,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                           values: RangeValues(_minRange, _maxRange),
                           min: 0,
                           max: _rangeMax,
-                          divisions: 30,
+                          divisions: 100,
                           labels: RangeLabels(
                             _fmtPrice(_minRange.toInt()),
                             _fmtPrice(_maxRange.toInt()),
@@ -512,6 +607,10 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                     SearchFilters(
                       wilayaId: wilayaId,
                       moughataaId: moughataaId,
+                      neighborhoodId: neighborhoodId,
+                      neighborhood: _neighborhoodCtrl.text.trim().isEmpty
+                          ? null
+                          : _neighborhoodCtrl.text.trim(),
                       minPrice: fixedMin,
                       maxPrice: fixedMax,
                       categoryId: categoryId,
@@ -527,6 +626,202 @@ class _FiltersSheetState extends State<_FiltersSheet> {
         ),
       ),
     );
+  }
+
+  static const String _kManualPick = '__manual__';
+
+  Future<void> _pickNeighborhood(BuildContext context) async {
+    final wId = (wilayaId ?? '').trim();
+    final mId = (moughataaId ?? '').trim();
+    if (wId.isEmpty || mId.isEmpty) return;
+
+    final list = neighborhoodSuggestionsFor(wilayaId: wId, moughataaId: mId);
+    final title =
+        _tr(context, ar: 'الحي/المنطقة', fr: 'Quartier', en: 'Neighborhood');
+
+    if (list.isEmpty) {
+      await _openManualEntry(
+        context,
+        title: title,
+        hint: _tr(context,
+            ar: 'اكتب اسم الحي',
+            fr: 'Saisissez le quartier',
+            en: 'Type neighborhood'),
+        initialValue: _neighborhoodCtrl.text.trim(),
+        onSaved: (v) {
+          setState(() {
+            neighborhoodId = null;
+            _neighborhoodCtrl.text = v.trim();
+          });
+        },
+      );
+      return;
+    }
+
+    final picked = await _openSuggestionPickerObj(
+      context,
+      title: title,
+      suggestions: list,
+      initialQuery: _neighborhoodCtrl.text.trim(),
+    );
+    if (!mounted || picked == null) return;
+
+    if (picked is String && picked == _kManualPick) {
+      await _openManualEntry(
+        context,
+        title: title,
+        hint: _tr(context,
+            ar: 'اكتب اسم الحي',
+            fr: 'Saisissez le quartier',
+            en: 'Type neighborhood'),
+        initialValue: _neighborhoodCtrl.text.trim(),
+        onSaved: (v) {
+          setState(() {
+            neighborhoodId = null;
+            _neighborhoodCtrl.text = v.trim();
+          });
+        },
+      );
+      return;
+    }
+
+    if (picked is MaSuggestion) {
+      setState(() {
+        neighborhoodId = picked.id;
+        _neighborhoodCtrl.text = picked.display(context);
+      });
+    }
+  }
+
+  Future<Object?> _openSuggestionPickerObj(
+    BuildContext context, {
+    required String title,
+    required List<MaSuggestion> suggestions,
+    String initialQuery = '',
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final ctrl = TextEditingController(text: initialQuery);
+
+    return showModalBottomSheet<Object?>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        String query = initialQuery;
+        List<MaSuggestion> filtered() {
+          final q = query.trim();
+          return suggestions.where((s) => s.matches(q)).toList(growable: false);
+        }
+
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            final list = filtered();
+            return Padding(
+              padding: EdgeInsetsDirectional.fromSTEB(
+                16,
+                8,
+                16,
+                MediaQuery.viewInsetsOf(ctx).bottom + 12,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(title,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w900)),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, _kManualPick),
+                        child: Text(
+                            _tr(ctx, ar: 'كتابة', fr: 'Saisir', en: 'Type')),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: ctrl,
+                    decoration: InputDecoration(
+                      hintText: _tr(ctx,
+                          ar: 'بحث…', fr: 'Rechercher…', en: 'Search…'),
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: cs.surfaceContainerHighest.withOpacity(0.35),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onChanged: (v) => setModal(() => query = v),
+                  ),
+                  const SizedBox(height: 10),
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: list.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        color: cs.outlineVariant.withOpacity(0.55),
+                      ),
+                      itemBuilder: (ctx, i) {
+                        final s = list[i];
+                        return ListTile(
+                          dense: true,
+                          title: Text(s.display(ctx)),
+                          onTap: () => Navigator.pop(ctx, s),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() => ctrl.dispose());
+  }
+
+  Future<void> _openManualEntry(
+    BuildContext context, {
+    required String title,
+    required String hint,
+    required String initialValue,
+    required void Function(String value) onSaved,
+  }) async {
+    final cs = Theme.of(context).colorScheme;
+    final ctrl = TextEditingController(text: initialValue);
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: InputDecoration(hintText: hint),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(_tr(ctx, ar: 'إلغاء', fr: 'Annuler', en: 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () {
+                onSaved(ctrl.text);
+                Navigator.pop(ctx);
+              },
+              child: Text(_tr(ctx, ar: 'حفظ', fr: 'OK', en: 'Save')),
+            ),
+          ],
+        );
+      },
+    );
+
+    ctrl.dispose();
   }
 
   void _syncRangeFromText() {
@@ -569,7 +864,9 @@ class _FiltersSheetState extends State<_FiltersSheet> {
   }
 
   static String _fmtPrice(int v) {
-    if (v <= 0) return '0';
+    // Force LTR rendering for numeric groups inside RTL UI.
+    const lrm = '‎';
+    if (v <= 0) return '${lrm}0${lrm}';
     final s = v.toString();
     final b = StringBuffer();
     for (int i = 0; i < s.length; i++) {
@@ -577,7 +874,7 @@ class _FiltersSheetState extends State<_FiltersSheet> {
       b.write(s[i]);
       if (idx > 1 && idx % 3 == 1) b.write(' ');
     }
-    return b.toString();
+    return '${lrm}' + b.toString() + '${lrm}';
   }
 
   static String _tr(BuildContext c,
@@ -602,12 +899,13 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-enum _ChipKind { wilaya, moughataa, category, sub, sort, price }
+enum _ChipKind { wilaya, moughataa, neighborhood, category, sub, sort, price }
 
 class _ActiveChips extends StatelessWidget {
   const _ActiveChips({
     required this.wilayaId,
     required this.moughataaId,
+    required this.neighborhood,
     required this.categoryId,
     required this.subCategoryId,
     required this.sort,
@@ -618,6 +916,7 @@ class _ActiveChips extends StatelessWidget {
 
   final String? wilayaId;
   final String? moughataaId;
+  final String? neighborhood;
   final String? categoryId;
   final String? subCategoryId;
   final SearchSort sort;
@@ -663,6 +962,12 @@ class _ActiveChips extends StatelessWidget {
         Icons.location_city_outlined,
       );
     }
+
+    if (neighborhood != null && neighborhood!.trim().isNotEmpty) {
+      addChip(neighborhood!.trim(), _ChipKind.neighborhood,
+          Icons.home_work_outlined);
+    }
+
     if (categoryId != null) {
       final c = findCategoryById(categoryId!);
       addChip(c?.name.ofLocale(loc) ?? categoryId!, _ChipKind.category,
@@ -683,11 +988,13 @@ class _ActiveChips extends StatelessWidget {
     final hasPrice = (minPrice != null && minPrice! > 0) ||
         (maxPrice != null && maxPrice! > 0);
     if (hasPrice) {
-      final a =
-          minPrice == null ? '0' : _FiltersSheetState._fmtPrice(minPrice!);
-      final b =
-          maxPrice == null ? '∞' : _FiltersSheetState._fmtPrice(maxPrice!);
-      addChip('$a - $b', _ChipKind.price, Icons.payments_outlined);
+      final a = _FiltersSheetState._fmtPrice(minPrice ?? 0);
+      const lrm = '‎';
+      final b = maxPrice == null
+          ? '${lrm}∞${lrm}'
+          : _FiltersSheetState._fmtPrice(maxPrice!);
+      addChip('${lrm}' + a + ' - ' + b + '${lrm}', _ChipKind.price,
+          Icons.payments_outlined);
     }
 
     if (sort != SearchSort.newest) {

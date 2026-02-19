@@ -5,15 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:tiki/core/constants/support_contacts.dart';
-import 'package:tiki/core/mocks/promo_moderation.dart';
-import 'package:tiki/core/state/auth_state.dart';
-import 'package:tiki/core/widgets/product_card.dart';
-import 'package:tiki/features/product/data/products_repository.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
-import 'package:tiki/features/promo/state/promo_providers.dart';
-import 'package:tiki/features/promo/data/promo_repository.dart' show PromoTier;
+import '../../../core/constants/support_contacts.dart';
+import '../../../core/mocks/promo_moderation.dart';
+import '../../../core/state/auth_state.dart';
+import '../../../core/widgets/product_card.dart';
+import '../../product/data/products_repository.dart';
+import '../../product/domain/app_product.dart';
+import '../../product/state/products_providers.dart';
+import '../../promo/data/promo_repository.dart';
+import '../../promo/state/promo_providers.dart';
 
 /// My listings screen (seller dashboard).
 ///
@@ -67,7 +67,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
         return _tr(context, ar: 'مخفي', fr: 'Masqué', en: 'Hidden');
       case 'pending':
         return _tr(context,
-            ar: 'قيد المراجعة', fr: 'En attente', en: 'Pending');
+            ar: 'جاري المراجعة', fr: 'En attente', en: 'Pending');
       default:
         return status;
     }
@@ -371,6 +371,18 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
     required dynamic product,
     required List<PromoPackage> packages,
   }) async {
+    // Feature via WhatsApp (no VIP / no in-app payments)
+    final pid = (product as dynamic).id?.toString() ?? '';
+    final title = (product as dynamic).title?.toString() ?? '';
+    final msg = _tr(context,
+      ar: 'السلام عليكم، أريد تمييز هذا الإعلان:\n$title\nرقم الإعلان: $pid',
+      fr: 'Bonjour, je veux mettre en vedette cette annonce :\n$title\nID: $pid',
+      en: 'Hi, I want to feature this ad:\n$title\nID: $pid',
+    );
+    final uri = _supportWhatsAppUri(message: msg);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    return;
+
     // Require price for VIP request.
     try {
       final price = (product as dynamic).price as int?;
@@ -495,6 +507,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
           'type': 'productVip',
           'status': 'pending',
           'createdAt': FieldValue.serverTimestamp(),
+          'createdAtMs': nowMs,
           'reqAtMs': nowMs,
         });
       },
@@ -658,9 +671,9 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.workspace_premium_outlined),
+                leading: const Icon(Icons.star_outline_rounded),
                 title: Text(_tr(context,
-                    ar: 'إدارة VIP', fr: 'Gérer VIP', en: 'Manage VIP')),
+                    ar: 'ميّز إعلانك', fr: 'Mettre en vedette', en: 'Feature your ad')),
                 onTap: () async {
                   Navigator.of(ctx).pop();
                   await _showVipOptions(context,
@@ -823,7 +836,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                       ),
                     if (isVipActive)
                       _miniChip(
-                        avatar: const Icon(Icons.workspace_premium_outlined,
+                        avatar: const Icon(Icons.star_outline_rounded,
                             size: 16),
                         label: Text(
                           until != null
@@ -833,7 +846,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                       ),
                     if (!isVipActive && isVipExpired)
                       _miniChip(
-                        avatar: const Icon(Icons.workspace_premium_outlined,
+                        avatar: const Icon(Icons.star_outline_rounded,
                             size: 16),
                         label: Text(_tr(context,
                             ar: 'VIP منتهي',
@@ -845,7 +858,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                         avatar:
                             const Icon(Icons.hourglass_top_rounded, size: 16),
                         label: Text(_tr(context,
-                            ar: 'VIP قيد المراجعة',
+                            ar: 'VIP جاري المراجعة',
                             fr: 'VIP en attente',
                             en: 'VIP pending')),
                       ),
@@ -895,18 +908,68 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
 
                   final vipLabel = (promoStatus == PromoStatus.pending)
                       ? _tr(context,
-                          ar: 'قيد المراجعة', fr: 'En attente', en: 'Pending')
-                      : (promoStatus == PromoStatus.needsPrice)
+                          ar: 'جاري المراجعة', fr: 'En attente', en: 'Pending')
+                      : (promoStatus == PromoStatus.rejected)
                           ? _tr(context,
-                              ar: 'السعر مطلوب',
-                              fr: 'Prix requis',
-                              en: 'Price needed')
-                          : _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP');
+                              ar: 'مرفوض', fr: 'Refusé', en: 'Rejected')
+                          : (promoStatus == PromoStatus.needsPrice)
+                              ? _tr(context,
+                                  ar: 'السعر مطلوب',
+                                  fr: 'Prix requis',
+                                  en: 'Price needed')
+                              : _tr(context, ar: 'مميّز', fr: 'Vedette', en: 'Featured');
 
                   VoidCallback? onVipPressed() {
                     if (vipBusy) return null;
-                    if (promoStatus == PromoStatus.pending)
+                    if (promoStatus == PromoStatus.pending) {
                       return null; // avoid repeated taps
+                    }
+                    if (promoStatus == PromoStatus.rejected) {
+                      return () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (dctx) {
+                            final reasonText = rejectReason.trim().isEmpty
+                                ? _tr(context,
+                                    ar: 'تم رفض طلب VIP. يمكنك إعادة الطلب.',
+                                    fr: 'Demande VIP refusée. Vous pouvez réessayer.',
+                                    en: 'VIP request rejected. You can reapply.')
+                                : rejectReason.trim();
+                            return AlertDialog(
+                              title: Text(_tr(context,
+                                  ar: 'تم رفض طلب VIP',
+                                  fr: 'VIP refusé',
+                                  en: 'VIP rejected')),
+                              content: Text(reasonText),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(dctx).pop(false),
+                                  child: Text(_tr(context,
+                                      ar: 'إلغاء',
+                                      fr: 'Annuler',
+                                      en: 'Cancel')),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.of(dctx).pop(true),
+                                  child: Text(_tr(context,
+                                      ar: 'إعادة الطلب',
+                                      fr: 'Réessayer',
+                                      en: 'Reapply')),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                        if (ok == true && context.mounted) {
+                          await _showVipOptions(context,
+                              userId: userId,
+                              repo: repo,
+                              product: p,
+                              packages: packages);
+                        }
+                      };
+                    }
                     if (promoStatus == PromoStatus.needsPrice) {
                       return () => _showVipNeedsPriceDialog(context, p);
                     }
@@ -916,7 +979,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                           context: context,
                           builder: (dctx) => AlertDialog(
                             title: Text(
-                                _tr(context, ar: 'VIP', fr: 'VIP', en: 'VIP')),
+                                _tr(context, ar: 'مميّز', fr: 'Vedette', en: 'Featured')),
                             content: Text(
                               until != null
                                   ? _tr(
@@ -1013,7 +1076,7 @@ class _MyListingsScreenState extends ConsumerState<MyListingsScreen> {
                                               strokeWidth: 2),
                                         )
                                       : const Icon(
-                                          Icons.workspace_premium_outlined,
+                                          Icons.star_outline_rounded,
                                           size: 18),
                                   label: Text(vipLabel),
                                 ),

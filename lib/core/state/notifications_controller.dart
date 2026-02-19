@@ -50,7 +50,7 @@ class NotificationsController extends StateNotifier<List<AppNotification>> {
     add(
       AppNotification(
         id: 'welcome',
-        title: 'Welcome to Tikki',
+        title: 'Welcome to Tkii',
         body: 'Your notification center is ready.',
         createdAt: DateTime.now(),
       ),

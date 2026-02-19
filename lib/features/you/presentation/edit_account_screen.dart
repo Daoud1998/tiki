@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:tiki/app/localization/l10n.dart';
+
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:tiki/core/data/ma_catalog.dart' show L10n3, maWilayas;
-import 'package:tiki/core/state/auth_state.dart' as auth;
-
+import '../../../app/localization/l10n.dart';
+import '../../../core/data/ma_catalog.dart';
+import '../../../core/data/ma_neighborhood_suggestions.dart';
+import '../../../core/data/ma_suggestions.dart';
+import '../../../core/state/auth_state.dart' as auth;
 import '../../kyc/data/kyc_settings_repository.dart';
 import '../../kyc/domain/kyc_models.dart';
 
@@ -37,6 +39,9 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
   bool _extraLoaded = false;
   bool _extraLoading = false;
   String? _wilayaId;
+  String? _moughataaId;
+  String? _neighborhoodId;
+  final _neighborhoodCtl = TextEditingController();
 
   static const _nouakchott =
       L10n3(ar: 'نواكشوط', fr: 'Nouakchott', en: 'Nouakchott');
@@ -66,13 +71,13 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
             'الرقم الجديد: (اكتب الرقم هنا)\n'
             'شكراً.'
         : s.isFr
-            ? 'Bonjour, je souhaite changer le numéro de téléphone de mon compte Tikki.\n'
+            ? 'Bonjour, je souhaite changer le numéro de téléphone de mon compte Tkii.\n'
                 'UID: $uid\n'
                 'Nom: $name\n'
                 'Numéro actuel: $phoneNow\n'
                 'Nouveau numéro: (écrivez le numéro ici)\n'
                 'Merci.'
-            : 'Hi, I want to change the phone number for my Tikki account.\n'
+            : 'Hi, I want to change the phone number for my Tkii account.\n'
                 'UID: $uid\n'
                 'Name: $name\n'
                 'Current phone: $phoneNow\n'
@@ -123,6 +128,7 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
   void dispose() {
     _nameCtl.dispose();
     _emailCtl.dispose();
+    _neighborhoodCtl.dispose();
     super.dispose();
   }
 
@@ -154,6 +160,28 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
         _wilayaId = wid;
       }
 
+      final mid = (data['moughataaId'] ??
+              data['moughataa_id'] ??
+              data['moughataa'] ??
+              '')
+          .toString()
+          .trim();
+      if (mid.isNotEmpty) {
+        _moughataaId = mid;
+      }
+
+      final nid = (data['neighborhoodId'] ??
+              data['neighborhood_id'] ??
+              data['neighborhoodId'] ??
+              '')
+          .toString()
+          .trim();
+      final ntext = (data['neighborhood'] ?? '').toString().trim();
+      if (nid.isNotEmpty) {
+        _neighborhoodId = nid;
+      }
+      _neighborhoodCtl.text = ntext;
+
       _extraLoaded = true;
     } catch (_) {
       // Non-fatal.
@@ -166,18 +194,198 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
 
   List<_WilayaOption> _wilayaOptions(BuildContext context) {
     final locale = Localizations.localeOf(context);
+    return maWilayas
+        .map((w) => _WilayaOption(w.id, w.name.ofLocale(locale)))
+        .toList(growable: false);
+  }
 
-    final out = <_WilayaOption>[
-      _WilayaOption('nouakchott', _nouakchott.ofLocale(locale)),
-    ];
+  List<_MoughataaOption> _moughataaOptions(BuildContext context) {
+    final locale = Localizations.localeOf(context);
+    final wId = (_wilayaId ?? '').trim();
+    final w = wId.isEmpty ? null : findWilayaById(wId);
+    final list = w?.moughataas ?? const <Moughataa>[];
+    return list
+        .map((m) => _MoughataaOption(m.id, m.name.ofLocale(locale)))
+        .toList(growable: false);
+  }
 
-    for (final w in maWilayas) {
-      // Collapse Nouakchott sub-wilayas into one umbrella.
-      if (w.id.startsWith('nouakchott_')) continue;
-      out.add(_WilayaOption(w.id, w.name.ofLocale(locale)));
+  static const String _kManualPick = '__manual__';
+
+  Future<void> _pickNeighborhood(BuildContext context) async {
+    final s = AppStrings.of(context);
+    final wId = (_wilayaId ?? '').trim();
+    final mId = (_moughataaId ?? '').trim();
+    if (wId.isEmpty || mId.isEmpty) return;
+
+    final list = neighborhoodSuggestionsFor(wilayaId: wId, moughataaId: mId);
+    final title = s.isAr
+        ? 'الحي/المنطقة (اختياري)'
+        : s.isFr
+            ? 'Quartier (optionnel)'
+            : 'Neighborhood (optional)';
+
+    if (list.isEmpty) {
+      await _openManualEntry(context, title: title);
+      return;
     }
 
-    return out;
+    final picked = await _openSuggestionPicker(context,
+        title: title,
+        suggestions: list,
+        initialQuery: _neighborhoodCtl.text.trim());
+
+    if (!mounted || picked == null) return;
+
+    if (picked is String && picked == _kManualPick) {
+      await _openManualEntry(context, title: title);
+      return;
+    }
+
+    if (picked is MaSuggestion) {
+      setState(() {
+        _neighborhoodId = picked.id;
+        _neighborhoodCtl.text = picked.display(context);
+      });
+    }
+  }
+
+  Future<void> _openManualEntry(BuildContext context,
+      {required String title}) async {
+    final s = AppStrings.of(context);
+    final ctl = TextEditingController(text: _neighborhoodCtl.text.trim());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) {
+        return AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: ctl,
+            decoration: InputDecoration(
+              hintText: s.isAr
+                  ? 'اكتب اسم الحي'
+                  : s.isFr
+                      ? 'Saisissez le quartier'
+                      : 'Type neighborhood',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(false),
+              child: Text(s.isAr
+                  ? 'إلغاء'
+                  : s.isFr
+                      ? 'Annuler'
+                      : 'Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dctx).pop(true),
+              child: Text(s.isAr
+                  ? 'حفظ'
+                  : s.isFr
+                      ? 'Enregistrer'
+                      : 'Save'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok == true && mounted) {
+      setState(() {
+        _neighborhoodId = null;
+        _neighborhoodCtl.text = ctl.text.trim();
+      });
+    }
+  }
+
+  Future<Object?> _openSuggestionPicker(
+    BuildContext context, {
+    required String title,
+    required List<MaSuggestion> suggestions,
+    String initialQuery = '',
+  }) async {
+    return showModalBottomSheet<Object?>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final q = TextEditingController(text: initialQuery);
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            final query = q.text.trim().toLowerCase();
+            final filtered = query.isEmpty
+                ? suggestions
+                : suggestions
+                    .where((sug) => sug.matches(query))
+                    .toList(growable: false);
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(ctx).height * 0.72,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(title,
+                                  style: Theme.of(ctx).textTheme.titleMedium),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.of(ctx).pop(_kManualPick),
+                              child: Text(AppStrings.of(ctx).isAr
+                                  ? 'إدخال يدوي'
+                                  : AppStrings.of(ctx).isFr
+                                      ? 'Saisie manuelle'
+                                      : 'Manual'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: TextField(
+                          controller: q,
+                          onChanged: (_) => setS(() {}),
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search),
+                            hintText: AppStrings.of(ctx).isAr
+                                ? 'ابحث...'
+                                : AppStrings.of(ctx).isFr
+                                    ? 'Rechercher...'
+                                    : 'Search...',
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (ctx, i) {
+                            final sug = filtered[i];
+                            return ListTile(
+                              title: Text(sug.display(ctx)),
+                              onTap: () => Navigator.of(ctx).pop(sug),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _save() async {
@@ -231,6 +439,15 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
               'wilayaId': (_wilayaId ?? '').trim().isEmpty
                   ? FieldValue.delete()
                   : (_wilayaId ?? '').trim(),
+              'moughataaId': (_moughataaId ?? '').trim().isEmpty
+                  ? FieldValue.delete()
+                  : (_moughataaId ?? '').trim(),
+              'neighborhoodId': (_neighborhoodId ?? '').trim().isEmpty
+                  ? FieldValue.delete()
+                  : (_neighborhoodId ?? '').trim(),
+              'neighborhood': _neighborhoodCtl.text.trim().isEmpty
+                  ? FieldValue.delete()
+                  : _neighborhoodCtl.text.trim(),
               'updatedAt': FieldValue.serverTimestamp(),
             },
             SetOptions(merge: true),
@@ -298,6 +515,7 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
     String ltr(String v) => '\u2066$v\u2069';
 
     final wilayaOptions = _wilayaOptions(context);
+    final moughataaOptions = _moughataaOptions(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -369,7 +587,12 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
                 )
                 .toList(growable: false),
             onChanged: a.isSignedIn && !_saving
-                ? (v) => setState(() => _wilayaId = v)
+                ? (v) => setState(() {
+                      _wilayaId = v;
+                      _moughataaId = null;
+                      _neighborhoodId = null;
+                      _neighborhoodCtl.text = '';
+                    })
                 : null,
             decoration: InputDecoration(
               labelText: s.isAr
@@ -386,6 +609,96 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
           ),
 
           const SizedBox(height: 12),
+
+          // Optional moughataa (depends on wilaya)
+          DropdownButtonFormField<String>(
+            value: (_moughataaId ?? '').trim().isEmpty ? null : _moughataaId,
+            items: moughataaOptions
+                .map(
+                  (o) => DropdownMenuItem<String>(
+                    value: o.id,
+                    child: Text(o.label),
+                  ),
+                )
+                .toList(growable: false),
+            onChanged: a.isSignedIn && !_saving
+                ? (v) => setState(() {
+                      _moughataaId = v;
+                      _neighborhoodId = null;
+                      _neighborhoodCtl.text = '';
+                    })
+                : null,
+            decoration: InputDecoration(
+              labelText: s.isAr
+                  ? 'المقاطعة (اختياري)'
+                  : s.isFr
+                      ? 'Moughataa (optionnel)'
+                      : 'Moughataa (optional)',
+              prefixIcon: const Icon(Icons.map_outlined),
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surface,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Optional neighborhood (Nouakchott + Nouadhibou)
+          Builder(builder: (context) {
+            final wId = (_wilayaId ?? '').trim();
+            final showNeighborhood =
+                wId.startsWith('nouakchott_') || wId == 'dakhlet_nouadhibou';
+
+            if (!showNeighborhood) return const SizedBox.shrink();
+
+            return TextFormField(
+              controller: _neighborhoodCtl,
+              readOnly: true,
+              onTap: a.isSignedIn && !_saving
+                  ? () async {
+                      if (((_moughataaId ?? '').trim()).isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(s.isAr
+                                ? 'اختر المقاطعة أولاً'
+                                : s.isFr
+                                    ? 'Choisissez d’abord la moughataa'
+                                    : 'Choose moughataa first'),
+                            duration: const Duration(milliseconds: 1200),
+                          ),
+                        );
+                        return;
+                      }
+                      await _pickNeighborhood(context);
+                    }
+                  : null,
+              decoration: InputDecoration(
+                labelText: s.isAr
+                    ? 'الحي/المنطقة (اختياري)'
+                    : s.isFr
+                        ? 'Quartier (optionnel)'
+                        : 'Neighborhood (optional)',
+                hintText: ((_moughataaId ?? '').trim()).isEmpty
+                    ? (s.isAr
+                        ? 'اختر المقاطعة أولاً'
+                        : s.isFr
+                            ? 'Choisissez d’abord la moughataa'
+                            : 'Choose moughataa first')
+                    : (s.isAr
+                        ? 'اختر من القائمة أو اكتب يدوياً'
+                        : s.isFr
+                            ? 'Choisissez ou saisissez'
+                            : 'Pick or type'),
+                prefixIcon: const Icon(Icons.home_work_outlined),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surface,
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            );
+          }),
+
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 4),
             leading: const Icon(Icons.phone_outlined),
@@ -496,6 +809,12 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
       ),
     );
   }
+}
+
+class _MoughataaOption {
+  const _MoughataaOption(this.id, this.label);
+  final String id;
+  final String label;
 }
 
 class _WilayaOption {

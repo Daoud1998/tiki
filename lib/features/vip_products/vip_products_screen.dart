@@ -94,8 +94,8 @@ class _VipProductsScreenState extends State<VipProductsScreen> {
     final title = _asStr(d['title']);
     final attrs = _attrs(d);
 
-    final currentUntilMs = _asInt(attrs['vipUntilMs']);
-    final currentRank = _asInt(attrs['vipRank'], fallback: 1);
+    final currentUntilMs = _asInt(attrs['promo_until_ms'] ?? attrs['promoUntilMs'] ?? attrs['vipUntilMs']);
+    final currentRank = _asInt(attrs['promo_rank'] ?? attrs['promoRank'] ?? attrs['vipRank'], fallback: 1);
 
     final result = await _showVipDialog(
       context: context,
@@ -117,17 +117,23 @@ class _VipProductsScreenState extends State<VipProductsScreen> {
         .add(Duration(days: days))
         .millisecondsSinceEpoch;
 
+    String tierFromRank(int r) {
+      if (r >= 3) return 'top';
+      if (r == 2) return 'featured';
+      return 'boost';
+    }
+
     final updates = <String, dynamic>{
-      'attrs.vipStatus': 'approved',
-      'attrs.vipUntilMs': untilMs,
+      'attrs.promo_status': 'approved',
+      'attrs.promo_until_ms': untilMs,
+      'attrs.promo_appr_at_ms': nowMs,
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedAtMs': nowMs,
-      'attrs.vipApprovedBy': _adminUid,
     };
 
     if (!extend) {
-      updates['attrs.vipRank'] = rank;
-      updates['attrs.vipApprovedAt'] = FieldValue.serverTimestamp();
+      updates['attrs.promo_rank'] = rank;
+      updates['attrs.promo_tier'] = tierFromRank(rank);
     }
 
     try {
@@ -219,11 +225,12 @@ class _VipProductsScreenState extends State<VipProductsScreen> {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     final updates = <String, dynamic>{
-      'attrs.vipStatus': 'none',
-      'attrs.vipRank': 0,
-      'attrs.vipUntilMs': 0,
-      'attrs.vipApprovedAt': FieldValue.delete(),
-      'attrs.vipApprovedBy': FieldValue.delete(),
+      'attrs.promo_status': 'none',
+      'attrs.promo_rank': FieldValue.delete(),
+      'attrs.promo_until_ms': FieldValue.delete(),
+      'attrs.promo_appr_at_ms': FieldValue.delete(),
+      'attrs.promo_tier': FieldValue.delete(),
+      'attrs.promo_reject_reason': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedAtMs': nowMs,
     };
@@ -286,10 +293,11 @@ class _VipProductsScreenState extends State<VipProductsScreen> {
     final data = snap?.data() ?? <String, dynamic>{};
     final attrs = _attrs(data);
 
-    final vipStatus = _asStr(attrs['vipStatus']);
-    final vipRank = _asInt(attrs['vipRank']);
-    final vipUntilMs = _asInt(attrs['vipUntilMs']);
+    final vipStatus = _asStr(attrs['promo_status'] ?? attrs['promoStatus'] ?? attrs['vipStatus']);
+    final vipRank = _asInt(attrs['promo_rank'] ?? attrs['promoRank'] ?? attrs['vipRank']);
+    final vipUntilMs = _asInt(attrs['promo_until_ms'] ?? attrs['promoUntilMs'] ?? attrs['vipUntilMs']);
     final vipUntil = _msToDate(vipUntilMs);
+    final vipTier = _asStr(attrs['promo_tier'] ?? attrs['promoTier']);
 
     final sellerId = _asStr(data['sellerId']);
     final title = _asStr(data['title']);
@@ -352,9 +360,10 @@ class _VipProductsScreenState extends State<VipProductsScreen> {
                   children: [
                     Text('VIP', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    _kv('vipStatus', vipStatus.isEmpty ? '-' : vipStatus),
-                    _kv('vipRank', vipRank.toString()),
-                    _kv('vipUntil',
+                    _kv('promo_status', vipStatus.isEmpty ? '-' : vipStatus),
+                    _kv('promo_rank', vipRank.toString()),
+                    _kv('promo_tier', vipTier.isEmpty ? '-' : vipTier),
+                    _kv('promo_until',
                         vipUntil == null ? '-' : vipUntil.toLocal().toString()),
                     const SizedBox(height: 12),
                     Wrap(

@@ -9,13 +9,24 @@ service cloud.firestore {
     // Allowlist admins: وثيقة باسم UID داخل /admins
     // نسمح للمستخدم يقرأ وثيقته فقط (لتجنب أي حلقات مع exists/get)
     match /admins/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow write: if false; // أضف الأدمن من Firebase Console فقط
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      // Only superadmin can manage admin list (add/remove/change roles)
+      allow create, update, delete: if isSuperAdmin();
     }
 
     function isAdmin() {
       return signedIn()
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function _adminData() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data;
+    }
+
+    // Super admin: role == "superadmin" (or legacy field superadmin == true)
+    function isSuperAdmin() {
+      return isAdmin()
+        && (_adminData().role == "superadmin" || _adminData().superadmin == true);
     }
 
     // KYC: يعتمد على kyc_requests/{uid}.status == "approved"
@@ -28,9 +39,21 @@ service cloud.firestore {
       return signedIn() && ownerId == request.auth.uid;
     }
 
+    // User publishing block (set by admin in /users/{uid}).
+    function publishingDisabled(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && (
+          get(/databases/$(database)/documents/users/$(uid)).data.publishingDisabled == true
+          || get(/databases/$(database)/documents/users/$(uid)).data.publishDisabled == true
+        );
+    }
+
     // Users (profile)
     match /users/{uid} {
-      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow delete: if isAdmin();
     }
 
     match /users/{uid}/blocks/{blockId} {
@@ -176,6 +199,7 @@ service cloud.firestore {
       // - غير الموثّق يستطيع إنشاء active لكن يكون reviewStatus=pending (لن يظهر للعامة حتى يوافق الأدمن)
       allow create: if signedIn()
         && request.resource.data.sellerId == request.auth.uid
+        && !publishingDisabled(request.auth.uid)
         && (request.resource.data.isHidden != true)
         && (request.resource.data.status in ["pending", "active"])
         && createReviewStatusOk()
@@ -250,8 +274,11 @@ service cloud.firestore {
         || isOwnerId(resource.data.ownerUserId)
         || isAdmin();
 
+      // إنشاء:
+      // - المستخدم: ينشئ إعلان لنفسه فقط
+      // - الأدمن: يستطيع إنشاء إعلان لأي مستخدم (للوحة التحكم)
       allow create: if signedIn()
-        && isOwnerId(request.resource.data.ownerUserId);
+        && (isOwnerId(request.resource.data.ownerUserId) || isAdmin());
 
       // Owner can update their ad, but cannot change pricing/approval fields.
       allow update: if isAdmin()
@@ -321,7 +348,9 @@ service cloud.firestore {
         allow create: if (signedIn()
             && ticketId == request.auth.uid
             && request.resource.data.senderId == request.auth.uid
-            && request.resource.data.fromAdmin == false)
+            && request.resource.data.fromAdmin == false
+            // منع المستخدم من إرسال صور (حتى لو حاول إرسال رابط داخل extra)
+            && (!request.resource.data.keys().hasAny(["extra"]) || request.resource.data.extra.type != "image"))
           || (isAdmin() && request.resource.data.fromAdmin == true);
 
         allow update, delete: if isAdmin();
@@ -335,7 +364,7 @@ service cloud.firestore {
 
     // Inbox (admin writes, user reads own)
     match /user_inbox/{uid}/items/{itemId} {
-      allow read: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
 
       // Admin (or tools using client SDK) can write items.
       allow create: if isAdmin();
@@ -394,5 +423,15 @@ service cloud.firestore {
 
       allow update, delete: if isAdmin();
     }
+
+    // Phone change requests (Admin tool)
+    match /phone_change_requests/{reqId} {
+      // Admin can create/read/update/delete any request.
+      // Optionally, a user can create/read their own request if userId == auth.uid.
+      allow create: if isAdmin() || (signedIn() && request.resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
   }
 }

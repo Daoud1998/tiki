@@ -27,7 +27,7 @@ Future<void> bootstrap() async {
   // FCM token + Topics + write notifTopics to /users/{uid}
   _setupMessaging();
 
-  runApp(const LocalStoreProviderScope(child: TikiApp()));
+  runApp(const LocalStoreProviderScope(child: TkiiApp()));
 }
 
 void _setupMessaging() {

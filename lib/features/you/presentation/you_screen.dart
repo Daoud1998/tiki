@@ -5,15 +5,15 @@ import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 
-import 'package:tiki/core/state/auth_state.dart' as auth;
-import 'package:tiki/core/utils/name_utils.dart';
-
+import '../../../core/state/auth_state.dart' as auth;
 import '../../../core/state/likes_controller.dart';
+import '../../notifications/presentation/notifications_controller.dart';
 import '../../../core/state/recently_viewed_controller.dart';
+import '../../../core/utils/name_utils.dart';
 import '../../../core/widgets/product_card.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
-import 'package:tiki/features/notifications/presentation/notifications_controller.dart';
+
+import '../../product/domain/app_product.dart';
+import '../../product/state/products_providers.dart';
 
 class YouScreen extends ConsumerStatefulWidget {
   const YouScreen({super.key});
@@ -46,7 +46,7 @@ class _YouScreenState extends ConsumerState<YouScreen> {
 
   Future<void> _refresh() async {
     // In mock mode, we just rebuild and refresh light providers.
-    ref.invalidate(notificationsUnreadCountProvider);
+    ref.invalidate(notificationsControllerProvider);
     ref.invalidate(productsFeedProvider);
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (mounted) setState(() {});
@@ -59,7 +59,10 @@ class _YouScreenState extends ConsumerState<YouScreen> {
 
     final likedIds = ref.watch(likesProvider); // Set<String>
     final recentIds = ref.watch(recentlyViewedProvider); // List<String>
-    final unread = ref.watch(notificationsUnreadCountProvider);
+    // Use the same source as the Notifications tab (includes broadcast + inbox).
+    final unread = ref.watch(
+      notificationsControllerProvider.select((s) => s.unreadCount),
+    );
 
     if (kDebugMode) {
       debugPrint('[YouScreen] unread notifications = $unread');
@@ -192,7 +195,7 @@ class _YouScreenState extends ConsumerState<YouScreen> {
                       onTap: () => context.push('/you/listings'),
                     ),
                     const SizedBox(height: 8),
-_Tile(
+                    _Tile(
                       icon: Icons.chat_bubble_rounded,
                       title: _tr(context,
                           ar: 'الدعم داخل التطبيق',
@@ -562,7 +565,7 @@ class _AccountCard extends ConsumerWidget {
                 }
                 await ref.read(auth.authControllerProvider.notifier).signOut();
                 // Refresh product feed & notifications immediately after logout.
-                ref.invalidate(notificationsUnreadCountProvider);
+                ref.invalidate(notificationsControllerProvider);
                 ref.invalidate(productsFeedProvider);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

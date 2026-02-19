@@ -8,13 +8,12 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../storage/local_store.dart';
 
-enum AuthProviderKind { local, google, apple, facebook, tiktok, whatsapp }
+enum AuthProviderKind { local, google, apple, tiktok, whatsapp }
 
 enum AuthStatus { loading, guest, signedIn }
 
@@ -132,7 +131,6 @@ class AuthController extends StateNotifier<AuthState> {
     final providers = u.providerData.map((e) => e.providerId).toList();
     if (providers.contains('google.com')) return AuthProviderKind.google;
     if (providers.contains('apple.com')) return AuthProviderKind.apple;
-    if (providers.contains('facebook.com')) return AuthProviderKind.facebook;
     if (providers.contains('phone')) return AuthProviderKind.local;
     return AuthProviderKind.local;
   }
@@ -205,6 +203,31 @@ class AuthController extends StateNotifier<AuthState> {
     return 'p$digits@tiki.phone';
   }
 
+
+  /// Some older builds used a pseudo-email WITHOUT the country code for +222 numbers
+  /// (e.g. p36566606@tiki.phone instead of p22236566606@tiki.phone).
+  /// To keep backward compatibility, we try both variants when checking/login.
+  List<String> _pseudoEmailCandidatesForPhone(String phoneE164) {
+    final digits = phoneE164.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return const <String>[];
+
+    final out = <String>['p$digits@tiki.phone'];
+
+    // Mauritania legacy: allow local 8-digit pseudo email.
+    if (digits.startsWith('222') && digits.length == 11) {
+      final local = digits.substring(3);
+      if (local.length == 8) out.add('p$local@tiki.phone');
+    }
+
+    // Ensure uniqueness while keeping order.
+    final seen = <String>{};
+    final unique = <String>[];
+    for (final e in out) {
+      if (seen.add(e)) unique.add(e);
+    }
+    return unique;
+  }
+
   Future<List<String>> _fetchMethodsForEmailCompat(String email) async {
     final auth = fb.FirebaseAuth.instance as dynamic;
 
@@ -228,10 +251,16 @@ class AuthController extends StateNotifier<AuthState> {
     final p = _normalizePhone(phoneE164);
     if (p.isEmpty) return false;
 
-    final email = _pseudoEmailForPhone(p);
+    // Try all backward-compatible pseudo emails.
+    final emails = _pseudoEmailCandidatesForPhone(p);
+    if (emails.isEmpty) return false;
+
     try {
-      final methods = await _fetchMethodsForEmailCompat(email);
-      return methods.contains('password');
+      for (final email in emails) {
+        final methods = await _fetchMethodsForEmailCompat(email);
+        if (methods.contains('password')) return true;
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -666,30 +695,50 @@ class AuthController extends StateNotifier<AuthState> {
   }) async {
     final p = _normalizePhone(phoneE164);
     if (p.isEmpty) return const AuthOpResult.fail('invalid_phone');
-    if (password.trim().isEmpty)
+    if (password.trim().isEmpty) {
       return const AuthOpResult.fail('empty_password');
-
-    final email = _pseudoEmailForPhone(p);
-
-    try {
-      final res = await fb.FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password.trim(),
-      );
-
-      final u = res.user;
-      if (u != null) {
-        await _ensureUserDoc(user: u, phoneE164Override: p);
-        await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
-          'hasPassword': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-      return const AuthOpResult.ok();
-    } catch (e) {
-      return AuthOpResult.fail(_mapFirebaseError(e));
     }
+
+    final pw = password.trim();
+    final emails = _pseudoEmailCandidatesForPhone(p);
+    if (emails.isEmpty) return const AuthOpResult.fail('user_not_found');
+
+    String? lastErr;
+
+    for (final email in emails) {
+      try {
+        final res = await fb.FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: pw,
+        );
+
+        final u = res.user;
+        if (u != null) {
+          await _ensureUserDoc(user: u, phoneE164Override: p);
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).set({
+            'hasPassword': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+        return const AuthOpResult.ok();
+      } catch (e) {
+        final code = _mapFirebaseError(e);
+        lastErr = code;
+
+        // If this pseudo-email didn't exist in older builds, try the next variant.
+        if (code == 'user_not_found') continue;
+
+        // Wrong password might be for a different legacy pseudo-email; try others
+        // before returning it.
+        if (code == 'wrong_password') continue;
+
+        return AuthOpResult.fail(code);
+      }
+    }
+
+    return AuthOpResult.fail(lastErr ?? 'user_not_found');
   }
+
 
   /// After OTP signup/signin, call this once to enable password-based login.
   Future<AuthOpResult> enablePhonePasswordLogin({
@@ -800,30 +849,6 @@ class AuthController extends StateNotifier<AuthState> {
   // Third-party mock + profile
   // ---------------------------------------------------------------------------
 
-  String? _extractFacebookToken(dynamic accessToken) {
-    if (accessToken == null) return null;
-
-    // flutter_facebook_auth changed token field names across versions.
-    // Support both `.tokenString` (newer) and `.token` (older) without
-    // pinning the package version.
-    try {
-      final v = accessToken.tokenString;
-      if (v is String && v.trim().isNotEmpty) return v.trim();
-    } catch (_) {}
-    try {
-      final v = accessToken.token;
-      if (v is String && v.trim().isNotEmpty) return v.trim();
-    } catch (_) {}
-    try {
-      final m = accessToken.toJson();
-      if (m is Map) {
-        final v = m['tokenString'] ?? m['token'];
-        if (v is String && v.trim().isNotEmpty) return v.trim();
-      }
-    } catch (_) {}
-
-    return null;
-  }
 
   Future<AuthOpResult> signInThirdPartyMock({
     required AuthProviderKind provider,
@@ -877,31 +902,6 @@ class AuthController extends StateNotifier<AuthState> {
                 user: u,
                 displayName: fullName.isEmpty ? null : fullName,
                 email: apple.email);
-          }
-          return const AuthOpResult.ok();
-
-        case AuthProviderKind.facebook:
-          final loginRes = await FacebookAuth.instance.login();
-          if (loginRes.status != LoginStatus.success) {
-            if (loginRes.status == LoginStatus.cancelled) {
-              return const AuthOpResult.fail('cancelled');
-            }
-            return const AuthOpResult.fail('oauth_failed');
-          }
-
-          final accessToken = loginRes.accessToken;
-          if (accessToken == null)
-            return const AuthOpResult.fail('oauth_failed');
-
-          final token = _extractFacebookToken(accessToken);
-          if (token == null) return const AuthOpResult.fail('oauth_failed');
-
-          final cred = fb.FacebookAuthProvider.credential(token);
-
-          final res = await fb.FirebaseAuth.instance.signInWithCredential(cred);
-          final u = res.user;
-          if (u != null) {
-            await _ensureUserDoc(user: u);
           }
           return const AuthOpResult.ok();
 
@@ -1002,3 +1002,27 @@ class AuthController extends StateNotifier<AuthState> {
 final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
   (ref) => AuthController(ref),
 );
+
+/// Live flag controlled by admins to block a user from publishing.
+///
+/// Admin sets one of these fields in users/{uid}:
+/// - publishingDisabled: true
+/// - publishDisabled: true
+///
+/// The user app uses this to disable the publish flow immediately (synced),
+/// and Cloud Functions must also enforce it server-side.
+final publishingDisabledProvider = StreamProvider<bool>((ref) {
+  final uid = ref.watch(authControllerProvider).userId;
+  final u = (uid ?? '').trim();
+  if (u.isEmpty) return Stream<bool>.value(false);
+
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(u)
+      .snapshots()
+      .map((snap) {
+    final d = snap.data();
+    if (d == null) return false;
+    return d['publishingDisabled'] == true || d['publishDisabled'] == true;
+  });
+});

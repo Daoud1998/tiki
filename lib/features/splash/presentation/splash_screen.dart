@@ -132,7 +132,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         color: cs.primary, size: 32),
                     const SizedBox(width: 0),
                     Text(
-                      'TIKI',
+                      'TKI',
                       style: TextStyle(
                         fontSize: 34,
                         fontWeight: FontWeight.w900,

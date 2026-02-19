@@ -181,9 +181,9 @@ class KycVerificationUiSettings {
         whatsAppTemplateAr:
             'السلام عليكم، أريد توثيق حسابي في تيكي.\nUID: {{uid}}\nالاسم: {{name}}\nالهاتف: {{phone}}\nسأرسل: (وثيقة + سيلفي)',
         whatsAppTemplateFr:
-            'Bonjour, je souhaite vérifier mon compte sur Tikki.\nUID: {{uid}}\nNom: {{name}}\nTéléphone: {{phone}}\nJe vais envoyer: (Document + selfie)',
+            'Bonjour, je souhaite vérifier mon compte sur Tkii.\nUID: {{uid}}\nNom: {{name}}\nTéléphone: {{phone}}\nJe vais envoyer: (Document + selfie)',
         whatsAppTemplateEn:
-            'Hello, I want to verify my account on Tikki.\nUID: {{uid}}\nName: {{name}}\nPhone: {{phone}}\nI will send: (Document + selfie)',
+            'Hello, I want to verify my account on Tkii.\nUID: {{uid}}\nName: {{name}}\nPhone: {{phone}}\nI will send: (Document + selfie)',
         benefitsAr: <String>[
           '✅ معاينة أسرع (غالباً أقل من دقيقة)',
           '✅ نشر غير محدود (حسب سياسة الإدارة)',

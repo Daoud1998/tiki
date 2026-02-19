@@ -5,14 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:tiki/features/widgets/similar_products_section.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
+import '../../../core/data/moderation_repository.dart';
 import '../../../core/mocks/promo_moderation.dart';
-import 'package:tiki/core/data/moderation_repository.dart';
+import '../../../core/state/auth_state.dart';
+import '../../../core/state/blocked_sellers_controller.dart';
 import '../../../core/storage/local_store.dart';
 import '../../../core/state/likes_controller.dart';
-import 'package:tiki/core/state/auth_state.dart';
+
 import '../../../core/utils/formatters.dart';
 import '../../../core/i18n/tikki_tr.dart';
 import '../../../core/data/ma_locations.dart';
@@ -21,6 +20,22 @@ import '../../../core/data/publish_taxonomy.dart';
 import '../../../core/data/ma_model_suggestions.dart';
 import '../../../core/data/ma_suggestions.dart';
 import '../../../core/constants/support_contacts.dart';
+import '../../widgets/similar_products_section.dart';
+import '../data/products_repository.dart';
+import '../domain/app_product.dart';
+import '../state/products_providers.dart';
+
+Future<void> _openFeatureWhatsAppForAd(BuildContext context, {required String productId, required String title}) async {
+  final message = tikkiTr(context,
+    ar: 'السلام عليكم، أريد تمييز هذا الإعلان:\n$title\nرقم الإعلان: $productId',
+    fr: 'Bonjour, je veux mettre en vedette cette annonce :\n$title\nID: $productId',
+    en: 'Hi, I want to feature this ad:\n$title\nID: $productId',
+  );
+  final phone = kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
+  final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
 
 /// Product details screen (keeps bottom navigation because it's inside ShellRoute).
 ///
@@ -988,17 +1003,21 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
   }
 
   Future<void> _blockSellerOnly(AppProduct p) async {
+    final sellerId = (p.sellerId ?? '').trim();
     final phone = (p.phone ?? '').trim();
-    if (phone.isEmpty) {
+    if (sellerId.isEmpty && phone.isEmpty) {
       _toast(tikkiTr(context,
-          ar: 'لا يوجد رقم للبائع لحظره.',
-          fr: "Aucun numéro vendeur à bloquer.",
-          en: "No seller phone to block."));
+          ar: 'لا توجد بيانات للبائع لحظره.',
+          fr: "Aucune info vendeur à bloquer.",
+          en: "No seller info to block."));
       return;
     }
     try {
-      final store = ref.read(localStoreProvider);
-      await store.blockSeller(phone);
+      await ref.read(blockedSellersProvider.notifier).blockSeller(
+            sellerId: sellerId.isEmpty ? null : sellerId,
+            sellerPhone: phone.isEmpty ? null : phone,
+            source: 'product_details',
+          );
       if (!mounted) return;
       _toast(tikkiTr(context,
           ar: 'تم حظر البائع. لن ترى منتجاته بعد الآن.',
@@ -1056,9 +1075,11 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
       );
 
       // Auto-block after reporting (as requested).
-      if (phone.isNotEmpty) {
-        await store.blockSeller(phone);
-      }
+      await ref.read(blockedSellersProvider.notifier).blockSeller(
+            sellerId: (p.sellerId ?? '').trim().isEmpty ? null : p.sellerId,
+            sellerPhone: phone.isEmpty ? null : phone,
+            source: 'report_and_block',
+          );
 
       if (!mounted) return;
       final ar = remoteOk
@@ -1560,6 +1581,60 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                       const SizedBox(height: 8),
                     ],
 
+                    // Feature your ad (owner only)
+                    if (isOwner) ...[
+                      const SizedBox(height: 10),
+                      Material(
+                        color: cs.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => _openFeatureWhatsAppForAd(
+                            context,
+                            productId: prod.id,
+                            title: (prod.title).toString(),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: cs.outlineVariant.withAlpha(140)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.star_rounded, color: cs.primary),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        tikkiTr(context,
+                                            ar: 'ميّز إعلانك',
+                                            fr: 'Mettre en vedette',
+                                            en: 'Feature your ad'),
+                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        tikkiTr(context,
+                                            ar: 'تواصل مع المشرف عبر واتساب لتفعيل التمييز.',
+                                            fr: "Contactez l'admin sur WhatsApp pour activer la mise en vedette.",
+                                            en: 'Contact admin on WhatsApp to activate featuring.'),
+                                        style: TextStyle(color: cs.onSurface.withAlpha(180), fontSize: 12.5),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Icon(Icons.chevron_right_rounded, color: cs.onSurface.withAlpha(160)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+
                     // Promo / VIP details (only the owner can see).
                     Builder(
                       builder: (ctx) {
@@ -1639,9 +1714,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                                   Expanded(
                                     child: Text(
                                       tikkiTr(ctx,
-                                          ar: 'معلومات الترويج (VIP)',
-                                          fr: 'Infos promotion (VIP)',
-                                          en: 'Promotion info (VIP)'),
+                                          ar: 'معلومات التمييز',
+                                          fr: 'Infos mise en vedette',
+                                          en: 'Featuring info'),
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w900),
                                     ),

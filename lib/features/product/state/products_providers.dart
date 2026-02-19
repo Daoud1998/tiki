@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tiki/features/product/data/products_repository.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
+
+import '../data/products_repository.dart';
+import '../domain/app_product.dart';
 export '../data/products_repository.dart' show productsRepositoryProvider;
 
 final productsFeedProvider = StreamProvider<List<AppProduct>>((ref) {

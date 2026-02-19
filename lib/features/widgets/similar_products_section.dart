@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/core/widgets/product_card.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
+
+
+import '../../core/widgets/product_card.dart';
+import '../product/domain/app_product.dart';
+import '../product/state/products_providers.dart';
 
 class SimilarProductsSection extends ConsumerWidget {
   /// [current] can be AppProduct (Firestore) or any legacy object.
@@ -32,7 +34,7 @@ class SimilarProductsSection extends ConsumerWidget {
         final list = items
             .where((p) {
               if (p.id == c.id) return false;
-              if (p.status != 'active') return false;
+              if (p?.status != 'active') return false;
               final sameCat = (p.category ?? '') == (c.category ?? '');
               final sameSub = (p.subCategory ?? '') == (c.subCategory ?? '');
               final sameWilaya = p.wilaya == c.wilaya;

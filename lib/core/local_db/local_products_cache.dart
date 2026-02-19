@@ -26,8 +26,17 @@ final localProductsSyncProvider = Provider<void>((ref) {
     sub?.cancel();
     sub = FirebaseFirestore.instance
         .collection('products')
+        // Public feed only (must match firestore.rules).
+        .where('status', isEqualTo: 'active')
+        .where('reviewStatus', isEqualTo: 'approved')
+        .where('isHidden', isEqualTo: false)
         .snapshots()
-        .listen((snap) => db.applySnapshot(snap));
+        .listen(
+            (snap) => db.applySnapshot(snap),
+            onError: (e, st) {
+              debugPrint('localProductsSyncProvider Firestore error: $e');
+            },
+          );
   });
 
   ref.onDispose(() async {

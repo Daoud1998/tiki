@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:tiki/core/state/auth_state.dart';
-import 'package:tiki/features/auth/presentation/reset_password_screen.dart';
-import 'package:tiki/core/data/country_codes.dart';
+import '../../../app/theme/app_theme.dart';
+import '../../../core/data/country_codes.dart';
+import '../../../core/config/support_config.dart';
+import '../../../core/state/auth_state.dart';
+import 'reset_password_screen.dart';
 
 /// Auth screen (requested UX):
 /// - Login: Phone + Password
@@ -786,6 +789,42 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     _toast(tr(ar: 'قريبًا', fr: 'Bientôt', en: 'Coming soon'));
   }
 
+  Future<void> _contactAdminWhatsApp() async {
+    // Allow contacting support even before login.
+    final raw = _loginPhoneCtl.text.trim();
+    final phoneDigits = raw.isEmpty ? '' : raw;
+
+    final msg = tr(
+      ar: 'السلام عليكم، لدي مشكلة في تسجيل الدخول. رقمي: $phoneDigits',
+      fr: "Bonjour, j’ai un problème de connexion. Mon numéro : $phoneDigits",
+      en: 'Hi, I have a login problem. My number: $phoneDigits',
+    );
+
+    // Read from Remote Config (fallback to constant).
+    final waNumber = SupportConfig.whatsapp;
+    final uri = Uri.parse(
+      'https://wa.me/$waNumber?text=${Uri.encodeComponent(msg)}',
+    );
+
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) {
+        _toast(tr(
+          ar: 'تعذر فتح واتساب. انسخ الرقم وتواصل معنا.',
+          fr: "Impossible d’ouvrir WhatsApp. Copiez le numéro et contactez-nous.",
+          en: "Couldn't open WhatsApp. Copy the number and contact us.",
+        ));
+      }
+    } catch (e) {
+      debugPrint('WhatsApp launch failed: $e');
+      _toast(tr(
+        ar: 'تعذر فتح واتساب. انسخ الرقم وتواصل معنا.',
+        fr: "Impossible d’ouvrir WhatsApp. Copiez le numéro et contactez-nous.",
+        en: "Couldn't open WhatsApp. Copy the number and contact us.",
+      ));
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Phone + password actions
   // ---------------------------------------------------------------------------
@@ -1052,6 +1091,10 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
                   decoration: BoxDecoration(
                     color: Colors.white.withAlpha(245),
                     borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: AppTheme.brandOrange.withAlpha(210),
+                      width: 2,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withAlpha(20),
@@ -1060,8 +1103,21 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
                       )
                     ],
                   ),
-                  child: const Icon(Icons.place,
-                      size: 36, color: Color(0xFF1D87FF)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset(
+                        'assets/images/branding/tiki_app_icon_1024.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stack) => Icon(
+                          Icons.apps,
+                          size: 36,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 const Text(
@@ -1256,6 +1312,20 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
                   ar: 'نسيت كلمة المرور؟',
                   fr: 'Mot de passe oublié ?',
                   en: 'Forgot password?')),
+            ),
+          ),
+
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: _busy ? null : _contactAdminWhatsApp,
+              style: TextButton.styleFrom(foregroundColor: AppTheme.brandOrange),
+              icon: const Icon(Icons.chat_bubble_outline),
+              label: Text(tr(
+                ar: 'تواصل مع الإدارة عبر واتساب',
+                fr: "Contacter l’admin sur WhatsApp",
+                en: 'Contact admin on WhatsApp',
+              )),
             ),
           ),
 

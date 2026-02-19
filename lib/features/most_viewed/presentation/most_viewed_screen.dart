@@ -74,7 +74,7 @@ class MostViewedScreen extends ConsumerWidget {
                         ),
                         const SizedBox(width: 6),
                         Expanded(
-                          child: TikkiSearchLangBar(
+                          child: TkiiSearchLangBar(
                             hint: _tr(context,
                                 ar: 'ابحث داخل الأكثر مشاهدة',
                                 fr: 'Rechercher dans les plus vus',

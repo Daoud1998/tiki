@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:tiki/core/search/ma_search_tokens.dart';
+
+import '../../../core/search/ma_search_tokens.dart';
 
 /// One-time backfill / migration for older product docs.
 ///

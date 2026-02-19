@@ -1,31 +1,34 @@
 import 'dart:math';
 
 import 'package:flutter_riverpod/legacy.dart';
-import 'package:tiki/features/publish/presentation/data/publish_drafts_repository.dart';
-import 'package:tiki/features/publish/presentation/domain/publish_draft.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
 
+import '../../product/domain/app_product.dart';
+import 'data/publish_drafts_repository.dart';
+import 'domain/publish_draft.dart' as pd;
 
 final publishDraftsControllerProvider =
-    StateNotifierProvider<PublishDraftsController, List<PublishDraft>>((ref) {
+    StateNotifierProvider<PublishDraftsController, List<pd.PublishDraft>>(
+        (ref) {
   final repo = ref.watch(publishDraftsRepositoryProvider);
   return PublishDraftsController(repo)..load();
 });
 
-class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
-  PublishDraftsController(this._repo) : super(const <PublishDraft>[]);
+class PublishDraftsController extends StateNotifier<List<pd.PublishDraft>> {
+  PublishDraftsController(this._repo) : super(const <pd.PublishDraft>[]);
 
   final PublishDraftsRepository _repo;
-  bool _loaded = false;
 
+  /// Load drafts from local storage.
+  ///
+  /// Note: this is intentionally not "single-shot" so pull-to-refresh works.
   Future<void> load() async {
-    if (_loaded) return;
-    _loaded = true;
     final items = await _repo.fetchAll();
+    // Sort newest first.
+    items.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
     state = items;
   }
 
-  PublishDraft? byId(String id) {
+  pd.PublishDraft? byId(String id) {
     final did = id.trim();
     if (did.isEmpty) return null;
     for (final d in state) {
@@ -52,7 +55,7 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
   Future<String> createBlank({String kind = 'product'}) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final id = _newId();
-    final d = PublishDraft(
+    final d = pd.PublishDraft(
       id: id,
       kind: kind,
       mode: 'create',
@@ -64,12 +67,14 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
       schemaVersion: 1,
       data: <String, dynamic>{},
     );
-    state = [d, ...state];
+
+    state = [d, ...state]
+      ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+
     await _persist();
     await _repo.setLastDraftId(id);
     return id;
   }
-
 
   /// Creates an edit-mode draft from a Firestore-backed [AppProduct].
   ///
@@ -114,7 +119,7 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
       data['moughataaName'] = p.moughataa;
     }
 
-    final d = PublishDraft(
+    final d = pd.PublishDraft(
       id: id,
       kind: 'product',
       mode: 'edit',
@@ -127,13 +132,15 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
       data: data,
     );
 
-    state = [d, ...state];
+    state = [d, ...state]
+      ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+
     await _persist();
     await _repo.setLastDraftId(id);
     return id;
   }
 
-  Future<void> upsert(PublishDraft draft) async {
+  Future<void> upsert(pd.PublishDraft draft) async {
     final i = state.indexWhere((e) => e.id == draft.id);
     if (i < 0) {
       state = [draft, ...state]
@@ -153,6 +160,7 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
     if (did.isEmpty) return;
     state = state.where((e) => e.id != did).toList(growable: false);
     await _persist();
+
     if ((_repo.getLastDraftId() ?? '') == did) {
       await _repo.setLastDraftId(null);
     }
@@ -173,7 +181,7 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
 
   Future<void> deleteAll() async {
     if (state.isEmpty) return;
-    state = const <PublishDraft>[];
+    state = const <pd.PublishDraft>[];
     await _persist();
     await _repo.setLastDraftId(null);
   }
@@ -184,9 +192,13 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
 
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final nid = _newId();
-    final next = src.copyWith(
-      // keep kind/mode, but it's a new draft instance
-      targetId: src.targetId,
+
+    final d = pd.PublishDraft(
+      id: nid,
+      kind: src.kind,
+      mode: 'create',
+      targetId: null,
+      name: (src.name ?? '').trim().isEmpty ? null : src.name,
       step: src.step,
       createdAtMs: nowMs,
       updatedAtMs: nowMs,
@@ -194,21 +206,9 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
       data: Map<String, dynamic>.from(src.data),
     );
 
-    final d = PublishDraft(
-      id: nid,
-      kind: next.kind,
-      mode: 'create',
-      targetId: null,
-      name: (src.name ?? '').trim().isEmpty ? null : src.name,
-      step: next.step,
-      createdAtMs: nowMs,
-      updatedAtMs: nowMs,
-      schemaVersion: next.schemaVersion,
-      data: next.data,
-    );
-
     state = [d, ...state]
       ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+
     await _persist();
     await _repo.setLastDraftId(nid);
     return nid;
@@ -230,6 +230,7 @@ class PublishDraftsController extends StateNotifier<List<PublishDraft>> {
     list[i] = next;
     list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
     state = list;
+
     await _persist();
   }
 }

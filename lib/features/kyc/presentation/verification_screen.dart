@@ -70,7 +70,7 @@ class VerificationScreen extends ConsumerWidget {
     final uiAsync = ref.watch(kycVerificationUiSettingsProvider);
 
     final title = tikkiTr(context,
-        ar: 'موثّق تيكي', fr: 'Tikki Vérifié', en: 'Tikki Verified');
+        ar: 'موثّق تيكي', fr: 'Tkii Vérifié', en: 'Tkii Verified');
 
     IconData statusIcon(String status) {
       switch (status) {

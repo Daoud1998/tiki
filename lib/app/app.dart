@@ -12,8 +12,8 @@ import 'state/app_setings.dart';
 import 'theme/app_theme.dart';
 import '../core/local_db/local_products_cache.dart';
 
-class TikiApp extends ConsumerStatefulWidget {
-  const TikiApp({super.key});
+class TkiiApp extends ConsumerStatefulWidget {
+  const TkiiApp({super.key});
 
   static const supportedLocales = <Locale>[
     Locale('ar'),
@@ -22,10 +22,10 @@ class TikiApp extends ConsumerStatefulWidget {
   ];
 
   @override
-  ConsumerState<TikiApp> createState() => _TikiAppState();
+  ConsumerState<TkiiApp> createState() => _TkiiAppState();
 }
 
-class _TikiAppState extends ConsumerState<TikiApp> {
+class _TkiiAppState extends ConsumerState<TkiiApp> {
   bool _didInit = false;
 
   @override
@@ -65,11 +65,11 @@ class _TikiAppState extends ConsumerState<TikiApp> {
 
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Tiki',
+      title: 'Tkii',
       theme: AppTheme.light(isArabic: isArabic),
       darkTheme: AppTheme.dark(isArabic: isArabic),
       themeMode: themeMode,
-      supportedLocales: TikiApp.supportedLocales,
+      supportedLocales: TkiiApp.supportedLocales,
       locale: localeOverride,
       localeResolutionCallback: (device, supported) {
         final d = device ?? const Locale('ar');

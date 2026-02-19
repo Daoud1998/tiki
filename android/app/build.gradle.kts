@@ -18,6 +18,20 @@ if (keystorePropertiesFile.exists()) {
 }
 
 
+
+
+// Fail fast if someone tries to build a RELEASE artifact without proper signing config.
+// This prevents accidentally shipping a bundle/APK signed with debug keys.
+val isReleaseTask = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+}
+val hasKeystoreProps = keystorePropertiesFile.exists()
+if (isReleaseTask && !hasKeystoreProps) {
+    throw GradleException(
+        "Missing android/key.properties for release signing. " +
+        "Create key.properties + upload-keystore.jks (upload key) before publishing to Google Play."
+    )
+}
 android {
     // Keep namespace aligned with applicationId to avoid manifest/MainActivity mismatches.
     namespace = "app.tiki.mr"
@@ -58,12 +72,17 @@ android {
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
-        }
+    release {
+        // Always sign release builds with the upload key.
+        signingConfig = signingConfigs.getByName("release")
+
+        // Optional: enable shrinking via `-PminifyRelease=true` when building.
+        val minify = (project.findProperty("minifyRelease") as String?)?.toBoolean() ?: false
+        isMinifyEnabled = minify
+        isShrinkResources = minify
+        proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
+}
 }
 
 flutter {
@@ -72,11 +91,12 @@ flutter {
 
 dependencies {
 
-  implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
-  implementation("com.google.firebase:firebase-pnv:16.0.0-beta01")
+    // Firebase (versions managed by BoM)
+    implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-auth")
 
-
-  implementation("com.google.firebase:firebase-analytics")
-  implementation("com.google.firebase:firebase-auth")
-
+    // App Check (required for Play Integrity / Debug provider to work reliably on Android)
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
+    debugImplementation("com.google.firebase:firebase-appcheck-debug")
 }

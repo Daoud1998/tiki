@@ -872,7 +872,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
     var list = source.where((p) {
       if (widget.excludedId != null && p.id == widget.excludedId) return false;
-      if (_isBlockedPhone(p.phone, blocked)) return false;
+      if (_isBlockedSeller(p, blocked)) return false;
       if (reported.contains(p.id)) return false;
 
       final effCat = _filters.categoryId;
@@ -922,6 +922,29 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
           return false;
       }
 
+      // Neighborhood filter (prefer stable id stored in attrs['neighborhood_id']).
+      final nId = (_filters.neighborhoodId ?? '').trim();
+      final nLabel = (_filters.neighborhood ?? '').trim();
+      if (nId.isNotEmpty || nLabel.isNotEmpty) {
+        final pid = (p.attrs['neighborhood_id'] ?? '').trim();
+        if (nId.isNotEmpty) {
+          if (pid.isNotEmpty) {
+            if (pid != nId) return false;
+          } else {
+            // Fallback for old products that don't have neighborhood_id yet.
+            if (nLabel.isEmpty) return false;
+            final pn = _normalizeQuery(p.neighborhood);
+            final nn = _normalizeQuery(nLabel);
+            if (nn.isNotEmpty && !pn.contains(nn)) return false;
+          }
+        } else {
+          // Label-only filter (manual/legacy).
+          final pn = _normalizeQuery(p.neighborhood);
+          final nn = _normalizeQuery(nLabel);
+          if (nn.isNotEmpty && !pn.contains(nn)) return false;
+        }
+      }
+
       if (minP != null && p.price < minP) return false;
       if (maxP != null && p.price > maxP) return false;
 
@@ -949,6 +972,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   bool _filtersActive() {
     if (_filters.wilayaId != null) return true;
     if (_filters.moughataaId != null) return true;
+    if ((_filters.neighborhoodId ?? '').trim().isNotEmpty) return true;
+    if ((_filters.neighborhood ?? '').trim().isNotEmpty) return true;
     if (_filters.minPrice != null) return true;
     if (_filters.maxPrice != null) return true;
     if (_filters.categoryId != null) return true;
@@ -2061,6 +2086,12 @@ class _MiniProductStrip extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _isBlockedSeller(AppProduct p, Set<String> blocked) {
+  final sid = (p.sellerId ?? '').trim();
+  if (sid.isNotEmpty && blocked.contains(sid)) return true;
+  return _isBlockedPhone(p.phone, blocked);
 }
 
 bool _isBlockedPhone(String? phone, Set<String> blocked) {

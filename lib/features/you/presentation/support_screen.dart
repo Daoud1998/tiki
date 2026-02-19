@@ -855,9 +855,9 @@ class _SupportScreenState extends State<SupportScreen> {
   Future<void> _openWhatsApp() async {
     final phone = _supportWhatsApp.replaceAll(RegExp(r'[^0-9]'), '');
     final text = Uri.encodeComponent(_tr(context,
-        ar: 'مرحبا، أحتاج مساعدة في تطبيق Tikki.',
-        fr: 'Bonjour, j\'ai besoin d\'aide sur Tikki.',
-        en: 'Hi, I need help with Tikki.'));
+        ar: 'مرحبا، أحتاج مساعدة في تطبيق Tkii.',
+        fr: 'Bonjour, j\'ai besoin d\'aide sur Tkii.',
+        en: 'Hi, I need help with Tkii.'));
     final uri = Uri.parse('https://wa.me/$phone?text=$text');
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
@@ -868,7 +868,7 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Future<void> _emailSupport() async {
-    final uri = Uri.parse('mailto:$_supportEmail?subject=Tikki%20Support');
+    final uri = Uri.parse('mailto:$_supportEmail?subject=Tkii%20Support');
     await launchUrl(uri);
   }
 

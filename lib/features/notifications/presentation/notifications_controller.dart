@@ -299,7 +299,26 @@ class NotificationsController extends StateNotifier<NotificationsState> {
   }
 }
 
+final notificationsUnreadCountStreamProvider = StreamProvider<int>((ref) {
+  final uid = ref.watch(authControllerProvider).userId;
+  final u = (uid ?? '').trim();
+  if (u.isEmpty) return Stream<int>.value(0);
+
+  // Live unread count from Firestore (personal inbox).
+  // We avoid orderBy to prevent composite index requirements.
+  return FirebaseFirestore.instance
+      .collection('user_inbox')
+      .doc(u)
+      .collection('items')
+      .where('read', isEqualTo: false)
+      .limit(101)
+      .snapshots()
+      .map((snap) => snap.size);
+});
+
+/// A simple int that the UI can use synchronously (nav badge, app bar badge).
+/// Returns 0 while loading or on errors.
 final notificationsUnreadCountProvider = Provider<int>((ref) {
-  final s = ref.watch(notificationsControllerProvider);
-  return s.unreadCount;
+  final a = ref.watch(notificationsUnreadCountStreamProvider);
+  return a.maybeWhen(data: (v) => v, orElse: () => 0);
 });

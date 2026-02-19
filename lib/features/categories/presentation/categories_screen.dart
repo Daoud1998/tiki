@@ -8,13 +8,13 @@ import 'package:go_router/go_router.dart';
 import '../../../app/localization/l10n.dart';
 import '../../../core/data/ma_catalog.dart';
 import '../../../core/state/auth_state.dart';
-import '../../../core/widgets/dir_chevrons.dart';
-import '../../../core/widgets/search_lang_bar.dart';
+import '../../../core/widgets/search_lang_bar.dart' as slb;
 import '../../../core/widgets/product_card.dart';
 import '../../../core/storage/local_store.dart';
 import '../../../core/mocks/promo_moderation.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
+import '../../product/domain/app_product.dart';
+import '../../product/state/products_providers.dart';
+
 
 /// Safe navigation helper: uses GoRouter and falls back to a SnackBar
 /// instead of throwing if the route doesn't exist yet.
@@ -88,7 +88,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     return Scaffold(
         body: SafeArea(
             child: Column(children: [
-      TikkiSearchLangBar(
+      slb.TikkiSearchLangBar(
         hint: s.searchHint,
         onSearchTap: () => context.push('/search'),
       ),
@@ -349,11 +349,11 @@ const List<_PromoSlide> _promoSlides = <_PromoSlide>[
     route: '/discounts',
   ),
   _PromoSlide(
-    icon: Icons.workspace_premium_outlined,
-    ar: 'عروض VIP',
-    fr: 'Offres VIP',
-    en: 'VIP deals',
-    route: '/home',
+    icon: Icons.star_outline_rounded,
+    ar: 'إعلانات مميزة',
+    fr: 'En vedette',
+    en: 'Featured',
+    route: '/you/support',
   ),
   _PromoSlide(
     icon: Icons.trending_up_outlined,
@@ -937,13 +937,13 @@ class _CategoryProductShelves extends ConsumerWidget {
             ...vipBoost,
           ];
           children.add(_ProductShelf(
-            title: const L10n3(ar: 'منتجات VIP', fr: 'Produits VIP', en: 'VIP picks')
+            title: const L10n3(ar: 'إعلانات مميزة', fr: 'En vedette', en: 'Featured')
                 .of(context),
             products: takeFresh(vip, 10),
             subtitle: const L10n3(
-              ar: 'تظهر هنا المنتجات المروّجة.',
-              fr: 'Les promotions apparaissent ici.',
-              en: 'Promoted items appear here.',
+              ar: 'تظهر هنا الإعلانات المميزة.',
+              fr: 'Les annonces en vedette apparaissent ici.',
+              en: 'Featured items appear here.',
             ).of(context),
           ));
           children.add(gap());

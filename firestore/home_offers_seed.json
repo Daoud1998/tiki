@@ -5,8 +5,8 @@
       "priority": 10,
       "titles": {
         "ar": "عروض تيكي: خصومات أسبوعية",
-        "fr": "Offres Tikki: promos hebdo",
-        "en": "Tikki deals: weekly promos"
+        "fr": "Offres Tkii: promos hebdo",
+        "en": "Tkii deals: weekly promos"
       },
       "updatedAtMs": 1700000000000,
       "route": "/discounts"

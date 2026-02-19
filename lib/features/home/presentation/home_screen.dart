@@ -8,8 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:tiki/features/content/presentation/content_data.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../../core/constants/support_contacts.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
@@ -17,24 +18,25 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import '../../../app/localization/l10n.dart';
 import '../../../core/data/ma_catalog.dart';
+import '../../../core/i18n/tikki_tr.dart';
 import '../../../core/mocks/promo_moderation.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/data/products_repository.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
+
 import '../../../core/storage/local_store.dart';
 import '../../../core/state/auth_state.dart';
 import '../../../core/state/profile_state.dart';
 import '../../../core/search/ma_search_dictionary.dart';
 import '../../../core/widgets/product_card.dart';
-import '../../../core/widgets/search_lang_bar.dart';
+import '../../../core/widgets/search_lang_bar.dart' as slb;
 import '../../notifications/domain/app_notification.dart';
 import '../../notifications/presentation/notifications_controller.dart';
+import '../../payments/data/payments_settings_repository.dart';
+import '../../payments/state/payments_providers.dart';
+import '../../product/data/products_repository.dart';
+import '../../product/domain/app_product.dart';
+import '../../promo_ads/data/promo_ads_plans_repository.dart';
+import '../../promo_ads/state/promo_ads_plans_providers.dart';
 import '../../receipts/presentation/receipts_controller.dart';
 import '../state/home_offers_provider.dart';
-import 'package:tiki/features/promo_ads/state/promo_ads_plans_providers.dart';
-import 'package:tiki/features/promo_ads/data/promo_ads_plans_repository.dart';
-import 'package:tiki/features/payments/state/payments_providers.dart';
-import 'package:tiki/features/payments/data/payments_settings_repository.dart';
 
 /// A small "refresh bus" used in mock mode.
 ///
@@ -61,7 +63,7 @@ final homeProductsFeedProvider =
 // --- Promo Ads (Firestore) ---
 //
 // Only a limited number of ads show in the moving ticker.
-// VIP ads are shown first (paid placement).
+// مميّز ads are shown first (paid placement).
 const int kPromoTickerMaxItems = 4;
 
 final promoAdsProvider =
@@ -80,7 +82,7 @@ final promoAdsProvider =
 
 /// Firestore collection: `promo_ads`
 ///
-/// Public view (Home): loads only approved (VIP) ads.
+/// Public view (Home): loads only approved (مميّز) ads.
 /// My Ads view: additionally loads my own ads (any status).
 ///
 /// This controller keeps the UI API the same as the previous mock controller,
@@ -281,7 +283,7 @@ class PromoAdsController extends StateNotifier<List<_PromoItem>> {
     return null;
   }
 
-  /// Admin approves a VIP ad request.
+  /// Admin approves a مميّز ad request.
   void approveVip(String id) {
     final did = id.trim();
     if (did.isEmpty) return;
@@ -307,7 +309,7 @@ class PromoAdsController extends StateNotifier<List<_PromoItem>> {
     );
   }
 
-  /// Admin rejects a VIP ad request.
+  /// Admin rejects a مميّز ad request.
   void rejectVip(String id) {
     final did = id.trim();
     if (did.isEmpty) return;
@@ -417,6 +419,24 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+
+  Future<void> _openFeatureWhatsApp(BuildContext context) async {
+    final message = tikkiTr(context,
+        ar: 'السلام عليكم، أريد تمييز إعلان/عرض.\nمن فضلك أرسل لك رابط الإعلان أو رقمه والمدة المطلوبة.',
+        fr: "Bonjour, je veux mettre en vedette une annonce/offre.\nMerci de m'envoyer le lien ou le numéro et la durée souhaitée.",
+        en: 'Hi, I want to feature an ad/offer.\nPlease send the ad link or ID and the desired duration.');
+    final phone = kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
+    final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tikkiTr(context, ar: 'تعذر فتح واتساب', fr: "Impossible d’ouvrir WhatsApp", en: 'Could not open WhatsApp'))),
+      );
+    }
+  }
+
   String? _handledToken;
   final GlobalKey _focusKey = GlobalKey();
   String? _handledFocusId;
@@ -788,7 +808,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Boost shelf under Featured (third tier).
     final vipBoostShelf = vipBoostProducts.take(10).toList(growable: false);
 
-    // "Trending" excludes VIP (Top/Featured/Boost).
+    // "Trending" excludes مميّز (Top/Featured/Boost).
     final trending = restProducts.take(20).toList(growable: false);
 
     // Deals (discounts): oldPrice > price
@@ -827,7 +847,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ...vipBoostProducts,
             ...restProducts,
           ]
-        // Home feed: VIP is handled by the ticker + Featured shelf.
+        // Home feed: مميّز is handled by the ticker + Featured shelf.
         : <AppProduct>[
             ...restProducts,
           ];
@@ -880,7 +900,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ? s.trending
         : '${s.trending} • $selCatLabel';
 
-    // VIP ads ticker (paid promo ads).
+    // مميّز ads ticker (paid promo ads).
     // Option A: target by wilaya only (or country-wide).
     final myWilayaId = ref.watch(profileProvider).profile?.wilayaId;
     final allPromoAds = ref.watch(promoAdsProvider);
@@ -936,27 +956,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     }
                     _showPromoDetails(context, item);
                   },
-                  onOpenAllPromos: () => context.push('/promo-ads'),
+                  onOpenAllPromos: () => _openFeatureWhatsApp(context),
                 ),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 0)),
 
-              // VIP sections (Temu-style shelves)
+              // مميّز sections (Temu-style shelves)
               if (!isSearching && vipTopProducts.isNotEmpty) ...[
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
                     child: Row(
                       children: [
-                        const Icon(Icons.workspace_premium_rounded, size: 18),
+                        const Icon(Icons.star_rounded, size: 18),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             _tr(
                               c: context,
-                              ar: 'VIP المميزة',
-                              fr: 'VIP Top',
-                              en: 'VIP Top',
+                              ar: 'إعلانات مميزة',
+                              fr: 'Top',
+                              en: 'Top',
                             ),
                             style: const TextStyle(
                               fontSize: 16,
@@ -1447,7 +1467,7 @@ class _StickyHomeHeader extends SliverPersistentHeaderDelegate {
     }
 
     final keywordFactor = showKeywords ? (1.0 - _remap(t, 0.0, 0.35)) : 0.0;
-    // Keep the Ads entry visible even if there are no VIP ads yet.
+    // Keep the Ads entry visible even if there are no مميّز ads yet.
     // (This restores the old "Ads" button behavior on Home.)
     final promoFactor = 1.0 - _remap(t, 0.10, 0.70);
     final splitFactor = 1.0 - _remap(t, 0.15, 0.80);
@@ -1466,7 +1486,7 @@ class _StickyHomeHeader extends SliverPersistentHeaderDelegate {
           SizedBox(height: topPad),
 
           // Search (always pinned)
-          TikkiSearchLangBar(
+          slb.TikkiSearchLangBar(
             hint: hint,
             padding: EdgeInsetsDirectional.fromSTEB(
               14,
@@ -1905,16 +1925,16 @@ class _PromoItem {
   /// id) so the advertiser can choose what number to display.
   final String? contactPhone;
 
-  /// Paid placement: shown first and labeled VIP.
+  /// Paid placement: shown first and labeled مميّز.
   ///
   /// NOTE: kept for backward compatibility with older demo data.
-  /// In the new flow, VIP is driven by [promoStatus].
+  /// In the new flow, مميّز is driven by [promoStatus].
   final bool isVip;
 
   /// Promo moderation status:
   /// - none: normal ad
   /// - pending: user submitted a payment reference id (awaiting review)
-  /// - approved: VIP active
+  /// - approved: مميّز active
   /// - rejected: rejected
   final String promoStatus;
 
@@ -2254,17 +2274,17 @@ class _PromoItem {
   bool get isListingPromo => (productId ?? '').trim().isNotEmpty;
 
   factory _PromoItem.fromProduct(AppProduct p, BuildContext context) {
-    final title = p.title.trim().isEmpty ? 'VIP' : p.title.trim();
+    final title = p.title.trim().isEmpty ? 'مميّز' : p.title.trim();
     final price = p.price;
     final subtitle = tikkiTr(
       context,
-      ar: 'VIP المميزة • ${p.wilaya} • ${price} MRU',
-      fr: 'VIP Top • ${p.wilaya} • ${price} MRU',
-      en: 'VIP Top • ${p.wilaya} • ${price} MRU',
+      ar: 'مميّز المميزة • ${p.wilaya} • ${price} MRU',
+      fr: 'مميّز Top • ${p.wilaya} • ${price} MRU',
+      en: 'مميّز Top • ${p.wilaya} • ${price} MRU',
     );
 
     return _PromoItem(
-      id: 'VIPTOP_${p.id}',
+      id: 'مميّزTOP_${p.id}',
       productId: p.id,
       imageUrl: p.imageUrl,
       isVip: true,
@@ -2380,7 +2400,7 @@ class _PromoTicker extends StatefulWidget {
   final List<_PromoItem> items;
   final void Function(_PromoItem item) onOpen;
 
-  /// Opens the full ads list (VIP pinned first) + "Add your ad".
+  /// Opens the full ads list (مميّز pinned first) + "Add your ad".
   final VoidCallback onOpenAll;
 
   final double height;
@@ -2423,7 +2443,7 @@ class _PromoTickerState extends State<_PromoTicker> {
 
     if (widget.items.isEmpty) {
       // Show a clickable "Ads" button so users can open the Ads screen
-      // even when there are no VIP ads yet.
+      // even when there are no مميّز ads yet.
       return Material(
         color: cs.surface,
         borderRadius: BorderRadius.circular(14),
@@ -2448,7 +2468,7 @@ class _PromoTickerState extends State<_PromoTicker> {
                     children: [
                       Text(
                         tikkiTr(context,
-                            ar: 'الإعلانات', fr: 'Publicités', en: 'Ads'),
+                            ar: 'ميّز إعلانك', fr: 'Mettre en vedette', en: 'Feature your ad'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -2459,9 +2479,9 @@ class _PromoTickerState extends State<_PromoTicker> {
                       const SizedBox(height: 2),
                       Text(
                         tikkiTr(context,
-                            ar: 'لا توجد إعلانات VIP بعد',
-                            fr: 'Pas de pubs VIP',
-                            en: 'No VIP ads yet'),
+                            ar: 'تواصل مع المشرف عبر واتساب',
+                            fr: 'Contactez l\'admin sur WhatsApp',
+                            en: 'Contact admin on WhatsApp'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -2530,7 +2550,7 @@ class _PromoTickerState extends State<_PromoTicker> {
                               height: 30,
                               radius: BorderRadius.circular(10),
                               fallbackIcon: item.isPromoApproved
-                                  ? Icons.workspace_premium_rounded
+                                  ? Icons.star_rounded
                                   : Icons.storefront_rounded,
                             ),
                             const SizedBox(width: 10),
@@ -3056,8 +3076,8 @@ Future<void> _showPromoList(
   List<_PromoItem> items,
   WidgetRef _,
 ) async {
-  // Option A: promos are derived from VIP Top listings.
-  // Try to resolve promo items back to products; fallback to VIP Top in mock mode.
+  // Option A: promos are derived from مميّز Top listings.
+  // Try to resolve promo items back to products; fallback to مميّز Top in mock mode.
   final byId = <String, dynamic>{
     for (final p in const <AppProduct>[]) (p.id ?? '').toString(): p,
   };
@@ -3247,7 +3267,7 @@ class _VipTopListScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _tr(context, ar: 'VIP المميزة', fr: 'VIP Top', en: 'VIP Top'),
+          _tr(context, ar: 'إعلانات مميزة', fr: 'Top', en: 'مميّز Top'),
           style: const TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
@@ -3257,9 +3277,9 @@ class _VipTopListScreen extends StatelessWidget {
                 child: Text(
                   _tr(
                     context,
-                    ar: 'لا توجد عناصر VIP حالياً',
-                    fr: "Aucun VIP pour l'instant",
-                    en: 'No VIP items right now',
+                    ar: 'لا توجد عناصر مميّز حالياً',
+                    fr: "Aucun مميّز pour l'instant",
+                    en: 'No مميّز items right now',
                   ),
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
@@ -3356,21 +3376,21 @@ Future<void> _showCreatePromoSheet(BuildContext context, WidgetRef ref) async {
     return;
   }
 
-  // In-app receipt/notice for creating the ad (and VIP request if chosen).
+  // In-app receipt/notice for creating the ad (and مميّز request if chosen).
   final nCtrl = ref.read(notificationsControllerProvider.notifier);
   if (created.isPromoPending) {
     nCtrl.pushText(
       id: 'vip_promo_${created.id}_request',
       type: AppNotificationType.sales,
-      arTitle: 'تم استلام طلب VIP للإعلان',
-      frTitle: 'Demande VIP reçue (pub)',
-      enTitle: 'VIP request received (ad)',
+      arTitle: 'تم استلام طلب مميّز للإعلان',
+      frTitle: 'Demande مميّز reçue (pub)',
+      enTitle: 'مميّز request received (ad)',
       arBody:
-          'طلب VIP لإعلانك قيد المراجعة. رقم الدفع: ${created.promoTxId ?? ''}.',
+          'طلب مميّز لإعلانك قيد المراجعة. رقم الدفع: ${created.promoTxId ?? ''}.',
       frBody:
-          'Votre demande VIP est en cours de vérification. Transaction: ${created.promoTxId ?? ''}.',
+          'Votre demande مميّز est en cours de vérification. Transaction: ${created.promoTxId ?? ''}.',
       enBody:
-          'Your VIP request is under review. Transaction: ${created.promoTxId ?? ''}.',
+          'Your مميّز request is under review. Transaction: ${created.promoTxId ?? ''}.',
       targetRoute: '/promo-ads?mine=1',
     );
   } else {
@@ -3401,713 +3421,62 @@ Future<void> _showCreatePromoSheet(BuildContext context, WidgetRef ref) async {
   );
 }
 
-class PromoAdsScreen extends ConsumerWidget {
+class PromoAdsScreen extends StatelessWidget {
   const PromoAdsScreen({super.key, this.mineOnly = false});
 
-  /// When true, show only ads created on this device (mock = "my ads").
+  /// Kept for backward compatibility (old deep links like /promo-ads?mine=1).
   final bool mineOnly;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final myWilayaId = ref.watch(profileProvider).profile?.wilayaId;
-    final auth = ref.watch(authControllerProvider);
-
-    final allItems = ref.watch(promoAdsProvider);
-
-    if (mineOnly && !auth.isSignedIn) {
-      return Scaffold(
-        backgroundColor: cs.surface,
-        appBar: AppBar(
-          title: Text(
-            tikkiTr(context,
-                ar: 'إعلاناتي الترويجية', fr: 'Mes pubs', en: 'My promo ads'),
-            style: const TextStyle(fontWeight: FontWeight.w900),
-          ),
-          centerTitle: true,
-        ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.lock_outline_rounded,
-                    size: 42, color: cs.onSurface.withValues(alpha: 0.55)),
-                const SizedBox(height: 10),
-                Text(
-                  tikkiTr(context,
-                      ar: 'سجّل الدخول لمشاهدة وإدارة إعلاناتك',
-                      fr: 'Connectez-vous pour gérer vos pubs',
-                      en: 'Sign in to manage your ads'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  tikkiTr(context,
-                      ar: 'الإعلانات العامة (VIP) يمكن مشاهدتها بدون تسجيل دخول.',
-                      fr: 'Les pubs VIP sont visibles sans connexion.',
-                      en: 'VIP ads are visible without signing in.'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    height: 1.3,
-                    color: cs.onSurface.withValues(alpha: 0.65),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: () {
-                    final next = Uri.encodeComponent('/promo-ads?mine=1');
-                    context.push('/auth?next=$next');
-                  },
-                  icon: const Icon(Icons.login_rounded),
-                  label: Text(tikkiTr(context,
-                      ar: 'تسجيل الدخول', fr: 'Se connecter', en: 'Sign in')),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Public view: show ONLY paid/approved ads (VIP) and respect targeting.
-    // Mine view: show ads created on this device including pending requests.
-    final meId = (auth.userId ?? auth.phoneE164 ?? '').trim();
-
-    final items = mineOnly
-        ? allItems.where((e) {
-            final owner = (e.ownerUserId ?? '').trim();
-            if (owner.isNotEmpty && meId.isNotEmpty) return owner == meId;
-            // Backward compatibility for older mock ads (device-created).
-            return e.createdByMe;
-          }).toList(growable: false)
-        : allItems
-            .where((e) => e.isPromoApproved)
-            .where((e) => e.promoUntilMs == null || e.promoUntilMs! > nowMs)
-            .where((e) => _targetsUserWilaya(e.targetWilayaId, myWilayaId))
-            .toList(growable: false);
-
-    final vip = mineOnly
-        ? items.where((e) => e.isPromoApproved).toList(growable: false)
-        : items;
-    final pending = mineOnly
-        ? items.where((e) => e.isPromoPending).toList(growable: false)
-        : const <_PromoItem>[];
-    final regular = mineOnly
-        ? items
-            .where((e) => !e.isPromoApproved && !e.isPromoPending)
-            .toList(growable: false)
-        : const <_PromoItem>[];
-
-    // Emit VIP expiry reminders for my approved promo ads (mock mode).
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final nCtrl = ref.read(notificationsControllerProvider.notifier);
-      final now = DateTime.now();
-      for (final ad in items) {
-        if (!ad.createdByMe) continue;
-        if (!ad.isPromoApproved) continue;
-        final untilMs = ad.promoUntilMs;
-        if (untilMs == null) continue;
-        final until = DateTime.fromMillisecondsSinceEpoch(untilMs);
-        final left = until.difference(now);
-        if (left <= Duration.zero) {
-          nCtrl.pushText(
-            id: 'vip_promo_${ad.id}_expired',
-            type: AppNotificationType.sales,
-            arTitle: 'انتهى VIP للإعلان',
-            frTitle: 'VIP expiré (pub)',
-            enTitle: 'VIP expired (ad)',
-            arBody:
-                'انتهت مدة VIP لإعلانك: ${ad.title(context)}. يمكنك إعادة الترويج من صفحة إعلاناتي.',
-            frBody:
-                'Le VIP de votre pub a expiré: ${ad.title(context)}. Vous pouvez le relancer depuis Mes pubs.',
-            enBody:
-                'VIP for your ad expired: ${ad.title(context)}. You can promote again from My ads.',
-            targetRoute: '/promo-ads?mine=1',
-          );
-        } else if (left <= const Duration(hours: 2)) {
-          nCtrl.pushText(
-            id: 'vip_promo_${ad.id}_exp2h',
-            type: AppNotificationType.sales,
-            arTitle: 'VIP للإعلان سينتهي قريبًا',
-            frTitle: 'VIP expire bientôt (pub)',
-            enTitle: 'VIP ending soon (ad)',
-            arBody: 'VIP لإعلانك سينتهي خلال أقل من ساعتين.',
-            frBody: 'Le VIP de votre pub expire dans moins de 2 heures.',
-            enBody: 'VIP for your ad ends in under 2 hours.',
-            targetRoute: '/promo-ads?mine=1',
-          );
-        } else if (left <= const Duration(hours: 24)) {
-          nCtrl.pushText(
-            id: 'vip_promo_${ad.id}_exp24h',
-            type: AppNotificationType.sales,
-            arTitle: 'تذكير: VIP للإعلان ينتهي خلال 24 ساعة',
-            frTitle: 'Rappel : VIP expire sous 24h (pub)',
-            enTitle: 'Reminder: VIP ends within 24h (ad)',
-            arBody:
-                'VIP لإعلانك سينتهي قريبًا. إذا كان الإعلان مهمًا لك، جدّد الترويج.',
-            frBody:
-                'Le VIP de votre pub expire bientôt. Renouvelez si nécessaire.',
-            enBody: 'VIP for your ad is ending soon. Renew if needed.',
-            targetRoute: '/promo-ads?mine=1',
-          );
-        }
-      }
-    });
-
-    Future<void> _openEditor({
-      _PromoItem? initial,
-      bool forceVip = false,
-    }) async {
-      if (!auth.isSignedIn) {
-        final goLogin = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(tikkiTr(ctx,
-                ar: 'تسجيل الدخول مطلوب',
-                fr: 'Connexion requise',
-                en: 'Login required')),
-            content: Text(tikkiTr(ctx,
-                ar: 'لإضافة إعلان (أو تفعيل VIP)، قم بتسجيل الدخول أولاً.',
-                fr: 'Pour ajouter une pub (ou activer VIP), connectez-vous d\'abord.',
-                en: 'To add an ad (or enable VIP), please sign in first.')),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: Text(
-                    tikkiTr(ctx, ar: 'إلغاء', fr: 'Annuler', en: 'Cancel')),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: Text(tikkiTr(ctx,
-                    ar: 'تسجيل الدخول', fr: 'Se connecter', en: 'Sign in')),
-              ),
-            ],
-          ),
-        );
-        if (goLogin == true) {
-          if (!context.mounted) return;
-          final next = Uri.encodeComponent('/promo-ads?mine=1');
-          context.push('/auth?next=$next');
-        }
-        return;
-      }
-
-      final updated =
-          await Navigator.of(context, rootNavigator: true).push<_PromoItem?>(
-        MaterialPageRoute(
-          builder: (_) => _CreatePromoScreen(
-            initial: initial,
-            forceVip: forceVip,
-            defaultWilayaId: myWilayaId,
-            ownerUserId: fb.FirebaseAuth.instance.currentUser?.uid,
-            mineOnly: true,
-          ),
-        ),
-      );
-      if (updated == null) return;
-
-      final ctrl = ref.read(promoAdsProvider.notifier);
-      try {
-        if (initial == null) {
-          await ctrl.add(updated);
-        } else {
-          await ctrl.upsert(updated);
-        }
-      } catch (e, st) {
-        if (kDebugMode) {
-          debugPrint('[promo_ads] save error: $e');
-        }
-        if (!context.mounted) return;
-        final m = ScaffoldMessenger.maybeOf(context);
-        m?.hideCurrentSnackBar();
-        m?.showSnackBar(
-          SnackBar(
-            content: Text(
-              tikkiTr(
-                context,
-                ar: 'تعذّر حفظ الإعلان. تأكد من تسجيل الدخول وصلاحيات Firestore/Storage.',
-                fr: "Impossible d\'enregistrer la pub. Vérifiez la connexion et les règles.",
-                en: 'Could not save the ad. Check login and Firestore/Storage rules.',
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      final nCtrl = ref.read(notificationsControllerProvider.notifier);
-      if (updated.isPromoPending) {
-        nCtrl.pushText(
-          id: 'vip_promo_${updated.id}_request',
-          type: AppNotificationType.sales,
-          arTitle: 'طلب VIP للإعلان قيد المراجعة',
-          frTitle: 'Demande VIP en cours',
-          enTitle: 'VIP request pending',
-          arBody:
-              'تم إرسال طلب VIP لإعلانك. رقم الدفع: ${updated.promoTxId ?? ''}.',
-          frBody:
-              'Demande VIP envoyée. Transaction: ${updated.promoTxId ?? ''}.',
-          enBody:
-              'VIP request submitted. Transaction: ${updated.promoTxId ?? ''}.',
-          targetRoute: '/promo-ads?mine=1',
-        );
-
-        // Save a local receipt so the seller can print it later.
-        if (updated.promoTxId != null && updated.promoPkgId != null) {
-          final plan = ref.read(promoAdsVipPlanProvider).asData?.value;
-          final pkgs = _vipPkgsFromPlan(plan);
-          final countryMult = plan?.countryWideMultiplier ?? 2;
-          final extraPct = plan?.multiWilayaExtraPercent ?? 0.20;
-          final capMult =
-              plan?.multiWilayaMaxMultiplier ?? countryMult.toDouble();
-
-          final pkg = pkgs.firstWhere(
-            (e) => e.id == updated.promoPkgId,
-            orElse: () => pkgs.isNotEmpty ? pkgs.first : _kAdVipPkgs.first,
-          );
-
-          final scopeIsCountry = _isCountryWideTarget(updated.targetWilayaId);
-          final count = _targetWilayaCount(updated.targetWilayaId);
-          final scope =
-              scopeIsCountry ? 'country' : (count > 1 ? 'multi' : 'wilaya');
-
-          final multiplier = scopeIsCountry
-              ? countryMult.toDouble()
-              : (count > 1
-                  ? _multiWilayaMultiplier(
-                      count,
-                      extraPercentPerWilaya: extraPct,
-                      capMultiplier: capMult,
-                      countryWideMultiplier: countryMult,
-                    )
-                  : 1.0);
-
-          final effectivePrice = _vipPriceForTarget(
-            pkg,
-            updated.targetWilayaId,
-            countryWideMultiplier: countryMult,
-            extraPercentPerWilaya: extraPct,
-            multiWilayaCapMultiplier: capMult,
-          );
-          await ref
-              .read(receiptsControllerProvider.notifier)
-              .addPromoAdVipRequest(
-            metaExtra: <String, dynamic>{
-              'targetWilayaId': (updated.targetWilayaId ?? '').trim(),
-              'scope': scope,
-              'multiplier': multiplier,
-              'countryWideMultiplier': countryMult,
-              'multiWilayaExtraPercent': extraPct,
-              'multiWilayaCapMultiplier': capMult,
-              'walletId': (updated.promoWalletId ?? '').trim(),
-              'basePriceMru': pkg.priceMru,
-            },
-            adId: updated.id,
-            arTitle: updated.arTitle,
-            frTitle: updated.frTitle,
-            enTitle: updated.enTitle,
-            pkgId: pkg.id,
-            priceMru: effectivePrice,
-            duration: Duration(days: pkg.days),
-            txId: updated.promoTxId!,
-          );
-        }
-      } else if (initial == null) {
-        nCtrl.pushText(
-          id: 'promo_${updated.id}_created',
-          type: AppNotificationType.system,
-          arTitle: 'تم حفظ إعلانك',
-          frTitle: 'Pub enregistrée',
-          enTitle: 'Ad saved',
-          arBody:
-              'تم حفظ إعلانك داخل "إعلاناتي". لتظهر للناس في الصفحة الرئيسية، فعّل VIP.',
-          frBody:
-              'Votre pub est enregistrée dans "Mes pubs". Elle devient publique après activation VIP.',
-          enBody:
-              'Your ad is saved in "My ads". It becomes public after VIP activation.',
-          targetRoute: '/promo-ads?mine=1',
-        );
-      } else {
-        nCtrl.pushText(
-          id: 'promo_${updated.id}_updated',
-          type: AppNotificationType.system,
-          arTitle: 'تم تحديث إعلانك',
-          frTitle: 'Pub mise à jour',
-          enTitle: 'Ad updated',
-          arBody: 'تم حفظ التعديل على إعلانك.',
-          frBody: 'Modification enregistrée.',
-          enBody: 'Changes saved.',
-          targetRoute: '/promo-ads?mine=1',
-        );
-      }
-
-      final m = ScaffoldMessenger.maybeOf(context);
-      if (m == null) return;
-      m.hideCurrentSnackBar();
-      m.showSnackBar(
-        SnackBar(
-          content: Text(
-            tikkiTr(
-              context,
-              ar: initial == null ? 'تمت إضافة الإعلان ✅' : 'تم حفظ التعديل ✅',
-              fr: initial == null
-                  ? 'Pub ajoutée ✅'
-                  : 'Modification enregistrée ✅',
-              en: initial == null ? 'Ad added ✅' : 'Changes saved ✅',
-            ),
-          ),
-          duration: const Duration(milliseconds: 900),
-        ),
-      );
-    }
-
-    Future<void> _confirmDelete(_PromoItem item) async {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(
-            tikkiTr(ctx,
-                ar: 'حذف الإعلان؟', fr: 'Supprimer la pub ?', en: 'Delete ad?'),
-          ),
-          content: Text(
-            tikkiTr(ctx,
-                ar: 'سيتم حذف الإعلان نهائياً.',
-                fr: 'Cette pub sera supprimée définitivement.',
-                en: 'This ad will be permanently deleted.'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child:
-                  Text(tikkiTr(ctx, ar: 'إلغاء', fr: 'Annuler', en: 'Cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child:
-                  Text(tikkiTr(ctx, ar: 'حذف', fr: 'Supprimer', en: 'Delete')),
-            ),
-          ],
-        ),
-      );
-      if (ok != true) return;
-      ref.read(promoAdsProvider.notifier).removeById(item.id);
-
-      final m = ScaffoldMessenger.maybeOf(context);
-      if (m == null) return;
-      m.hideCurrentSnackBar();
-      m.showSnackBar(
-        SnackBar(
-          content: Text(
-            tikkiTr(context,
-                ar: 'تم حذف الإعلان', fr: 'Pub supprimée', en: 'Ad deleted'),
-          ),
-          duration: const Duration(milliseconds: 850),
-        ),
-      );
-    }
-
-    Widget? _manageMenu(_PromoItem item) {
-      if (!mineOnly) return null;
-
-      final vipLabel = item.isPromoApproved
-          ? tikkiTr(context,
-              ar: 'تجديد VIP', fr: 'Renouveler VIP', en: 'Renew VIP')
-          : tikkiTr(context,
-              ar: 'ترويج VIP', fr: 'Passer VIP', en: 'Promote VIP');
-
-      return PopupMenuButton<String>(
-        tooltip: tikkiTr(context, ar: 'إدارة', fr: 'Gérer', en: 'Manage'),
-        onSelected: (v) {
-          if (v == 'edit') {
-            _openEditor(initial: item);
-            return;
-          }
-          if (v == 'vip') {
-            _openEditor(initial: item, forceVip: true);
-            return;
-          }
-          if (v == 'delete') {
-            _confirmDelete(item);
-            return;
-          }
-        },
-        itemBuilder: (ctx) => [
-          PopupMenuItem(
-            value: 'edit',
-            child: Row(
-              children: [
-                const Icon(Icons.edit_rounded),
-                const SizedBox(width: 10),
-                Text(tikkiTr(ctx, ar: 'تعديل', fr: 'Modifier', en: 'Edit')),
-              ],
-            ),
-          ),
-          PopupMenuItem(
-            value: 'vip',
-            child: Row(
-              children: [
-                const Icon(Icons.workspace_premium_rounded),
-                const SizedBox(width: 10),
-                Text(vipLabel),
-              ],
-            ),
-          ),
-          const PopupMenuDivider(),
-          PopupMenuItem(
-            value: 'delete',
-            child: Row(
-              children: [
-                const Icon(Icons.delete_outline_rounded),
-                const SizedBox(width: 10),
-                Text(tikkiTr(ctx, ar: 'حذف', fr: 'Supprimer', en: 'Delete')),
-              ],
-            ),
-          ),
-        ],
-        icon: Icon(Icons.more_vert_rounded,
-            color: cs.onSurface.withValues(alpha: isDark ? 0.75 : 0.65)),
-      );
-    }
 
     return Scaffold(
-      backgroundColor: cs.surface,
       appBar: AppBar(
-        title: Text(
-          mineOnly
-              ? tikkiTr(context,
-                  ar: 'إعلاناتي الترويجية', fr: 'Mes pubs', en: 'My promo ads')
-              : tikkiTr(context, ar: 'الإعلانات', fr: 'Publicités', en: 'Ads'),
-          style: const TextStyle(fontWeight: FontWeight.w900),
-        ),
-        centerTitle: true,
+        title: Text(tikkiTr(context,
+            ar: 'ميّز إعلانك', fr: 'Mettre en vedette', en: 'Feature your ad')),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          if (!mineOnly) ...[
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: cs.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: cs.outlineVariant.withAlpha(170)),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: cs.outlineVariant.withAlpha(140)),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tikkiTr(context,
-                        ar: 'هل تريد إعلانك يظهر هنا؟',
-                        fr: 'Vous voulez afficher votre pub ici ?',
-                        en: 'Want your ad to appear here?'),
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    tikkiTr(context,
-                        ar: 'أضف إعلانك داخل "إعلاناتي". يظهر للناس فقط بعد تفعيل VIP.',
-                        fr: 'Ajoutez votre pub dans "Mes pubs". Elle devient publique seulement après VIP.',
-                        en: 'Add your ad in "My ads". It becomes public only after VIP.'),
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color:
-                          cs.onSurface.withValues(alpha: isDark ? 0.78 : 0.62),
-                      height: 1.25,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            if (auth.isSignedIn) {
-                              context.push('/promo-ads?mine=1');
-                              return;
-                            }
-                            final next =
-                                Uri.encodeComponent('/promo-ads?mine=1');
-                            context.push('/auth?next=$next');
-                          },
-                          icon: const Icon(Icons.person_rounded),
-                          label: Text(tikkiTr(context,
-                              ar: 'إعلاناتي', fr: 'Mes pubs', en: 'My ads')),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          // Directly open the ad creation flow.
-                          // Users can still access "My ads" via the other button.
-                          onPressed: () => _openEditor(initial: null),
-                          icon: const Icon(Icons.add_circle_outline),
-                          label: Text(tikkiTr(context,
-                              ar: 'أضف إعلان', fr: 'Ajouter', en: 'Add')),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-          ],
-          if (mineOnly) ...[
-            FilledButton.icon(
-              onPressed: () => _openEditor(initial: null),
-              icon: const Icon(Icons.add_circle_outline),
-              label: Text(
-                tikkiTr(context,
-                    ar: 'أضف إعلانك هنا',
-                    fr: 'Ajouter votre pub',
-                    en: 'Add your ad'),
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-            ),
-            const SizedBox(height: 14),
-          ],
-          if (vip.isNotEmpty) ...[
-            Row(
-              children: [
-                Icon(Icons.workspace_premium_rounded, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    tikkiTr(context,
-                        ar: 'إعلانات VIP (مدفوعة)',
-                        fr: 'Pubs VIP (payées)',
-                        en: 'VIP ads (paid)'),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${vip.length}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: cs.onSurface.withValues(alpha: isDark ? 0.72 : 0.62),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...vip.map(
-              (item) => _PromoListTile(
-                item: item,
-                onTap: () => _showPromoDetails(context, item),
-                trailing: _manageMenu(item),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          if (pending.isNotEmpty) ...[
-            Row(
-              children: [
-                Icon(Icons.hourglass_top_rounded,
-                    color: cs.onSurface.withValues(alpha: 0.70)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    tikkiTr(context,
-                        ar: 'طلبات VIP (قيد المراجعة)',
-                        fr: 'Demandes VIP (en attente)',
-                        en: 'VIP requests (pending)'),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${pending.length}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: cs.onSurface.withValues(alpha: isDark ? 0.72 : 0.62),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...pending.map(
-              (item) => _PromoListTile(
-                item: item,
-                onTap: () => _showPromoDetails(context, item),
-                trailing: _manageMenu(item),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          Row(
-            children: [
-              Icon(Icons.campaign_rounded,
-                  color: cs.onSurface.withValues(alpha: 0.7)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  tikkiTr(context,
-                      ar: 'إعلانات أخرى', fr: 'Autres pubs', en: 'More ads'),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              Text(
-                '${regular.length}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: cs.onSurface.withValues(alpha: isDark ? 0.72 : 0.62),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (regular.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
               child: Text(
                 tikkiTr(context,
-                    ar: 'لا توجد إعلانات إضافية حالياً.',
-                    fr: "Pas d'autres pubs pour l'instant.",
-                    en: 'No more ads for now.'),
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: cs.onSurface.withValues(alpha: isDark ? 0.7 : 0.62),
-                ),
-              ),
-            )
-          else
-            ...regular.map(
-              (item) => _PromoListTile(
-                item: item,
-                onTap: () => _showPromoDetails(context, item),
-                trailing: _manageMenu(item),
+                    ar: 'لتمييز إعلانك أو عرضك، تواصل مع المشرف عبر واتساب.\nأرسل رابط الإعلان أو رقمه والمدة المطلوبة.',
+                    fr: "Pour mettre en vedette votre annonce/offre, contactez l'admin sur WhatsApp.\nEnvoyez le lien ou le numéro et la durée souhaitée.",
+                    en: 'To feature your ad/offer, contact admin on WhatsApp.\nSend the ad link or ID and the desired duration.'),
+                style: TextStyle(height: 1.35, color: cs.onSurface.withAlpha(220)),
               ),
             ),
-        ],
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () async {
+                final message = tikkiTr(context,
+                    ar: 'السلام عليكم، أريد تمييز إعلان/عرض.\nمن فضلك أرسل لك رابط الإعلان أو رقمه والمدة المطلوبة.',
+                    fr: 'Bonjour, je veux mettre en vedette une annonce/offre.\nMerci de m\'envoyer le lien ou le numéro et la durée souhaitée.',
+                    en: 'Hi, I want to feature an ad/offer.\nPlease send the ad link or ID and the desired duration.');
+                final phone = kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
+                final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+              icon: const Icon(Icons.support_agent_rounded),
+              label: Text(tikkiTr(context,
+                  ar: 'تواصل عبر واتساب', fr: 'WhatsApp', en: 'WhatsApp')),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-
-// --- VIP packages for ADS (manual verification) ---
-//
-// Prices/rules are admin-configured in Firestore:
-// - promo_ads_plans/vip.durations: [{days, priceMru}, ...]
-// - promo_ads_plans/vip.countryWideMultiplier
-// - promo_ads_plans/vip.multiWilayaExtraPercent (0.20 or 20)
-// - promo_ads_plans/vip.multiWilayaMaxMultiplier (cap; also limited by countryWideMultiplier)
-//
-// The list below is only a fallback if the plan isn't available.
 
 class _VipPkg {
   final String id;
@@ -4118,16 +3487,16 @@ class _VipPkg {
   String label(BuildContext c) {
     if (days == 1) {
       return tikkiTr(c,
-          ar: 'VIP لمدة يوم', fr: 'VIP 1 jour', en: 'VIP for 1 day');
+          ar: 'مميّز لمدة يوم', fr: 'مميّز 1 jour', en: 'مميّز for 1 day');
     }
     if (days == 7) {
       return tikkiTr(c,
-          ar: 'VIP لمدة أسبوع', fr: 'VIP 1 semaine', en: 'VIP for 1 week');
+          ar: 'مميّز لمدة أسبوع', fr: 'مميّز 1 semaine', en: 'مميّز for 1 week');
     }
     return tikkiTr(c,
-        ar: 'VIP لمدة $days أيام',
-        fr: 'VIP $days jours',
-        en: 'VIP for $days days');
+        ar: 'مميّز لمدة $days أيام',
+        fr: 'مميّز $days jours',
+        en: 'مميّز for $days days');
   }
 }
 
@@ -4153,8 +3522,10 @@ int _vipDaysFromPkgId(String? id) {
 
 List<_VipPkg> _vipPkgsFromPlan(PromoAdsVipPlan? plan) {
   final p = plan;
-  if (p == null) return _kAdVipPkgs;
-  if (p.durations.isEmpty) return _kAdVipPkgs;
+  if (p == null) return const <_VipPkg>[];
+  if (!p.active) return const <_VipPkg>[];
+  if (p.durations.isEmpty) return const <_VipPkg>[];
+
   return p.durations
       .map(
         (d) => _VipPkg(
@@ -4269,7 +3640,7 @@ class _CreatePromoScreen extends ConsumerStatefulWidget {
   /// When provided, the screen works in edit mode and returns an updated item.
   final _PromoItem? initial;
 
-  /// When true, pre-opens the VIP section (used from the manage menu).
+  /// When true, pre-opens the مميّز section (used from the manage menu).
   final bool forceVip;
 
   /// Default targeting for new ads (usually the user's profile wilaya).
@@ -4587,7 +3958,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
     contactCtrl.text =
         (fb.FirebaseAuth.instance.currentUser?.phoneNumber ?? '').trim();
 
-    // VIP is optional: you can create a normal ad, then upgrade to VIP later.
+    // مميّز is optional: you can create a normal ad, then upgrade to مميّز later.
     wantsVip = widget.forceVip;
   }
 
@@ -4652,7 +4023,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final isEdit = widget.initial != null;
-    // When a VIP request is pending, prevent editing the VIP request fields.
+    // When a مميّز request is pending, prevent editing the مميّز request fields.
     final vipLocked = widget.initial?.isPromoPending ?? false;
 
     final vipPlan = ref.watch(promoAdsVipPlanProvider).asData?.value;
@@ -4660,6 +4031,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
         const <PaymentWallet>[];
 
     final adVipPkgs = _vipPkgsFromPlan(vipPlan);
+    final vipOffersAvailable = adVipPkgs.isNotEmpty;
     final countryMult = vipPlan?.countryWideMultiplier ?? 2;
     final extraPct = vipPlan?.multiWilayaExtraPercent ?? 0.20;
     final capMult = vipPlan?.multiWilayaMaxMultiplier ?? countryMult.toDouble();
@@ -4668,6 +4040,19 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
     final multiCapLabel = (multiCap - multiCap.roundToDouble()).abs() < 0.0001
         ? multiCap.toInt().toString()
         : multiCap.toStringAsFixed(1);
+
+    // If admin removed مميّز offers, force-disable مميّز to avoid showing hardcoded prices.
+    if (wantsVip && !vipOffersAvailable) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          wantsVip = false;
+          selectedVipPkg = null;
+          _selectedWalletId = null;
+          txCtrl.clear();
+        });
+      });
+    }
 
     // Keep selected package in sync with admin plan.
     if (wantsVip && selectedVipPkg != null && adVipPkgs.isNotEmpty) {
@@ -4752,9 +4137,9 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                   const SizedBox(height: 4),
                   Text(
                     tikkiTr(context,
-                        ar: 'أضف إعلانك داخل "إعلاناتي". يظهر للناس فقط بعد تفعيل VIP.',
-                        fr: 'Ajoutez votre pub dans "Mes pubs". Elle devient publique seulement après VIP.',
-                        en: 'Add your ad in "My ads". It becomes public only after VIP.'),
+                        ar: 'أضف إعلانك داخل "إعلاناتي". يظهر للناس فقط بعد تفعيل مميّز.',
+                        fr: 'Ajoutez votre pub dans "Mes pubs". Elle devient publique seulement après مميّز.',
+                        en: 'Add your ad in "My ads". It becomes public only after مميّز.'),
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color:
@@ -5245,15 +4630,15 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.workspace_premium_rounded,
+                  Icon(Icons.star_rounded,
                       color: cs.primary.withValues(alpha: 0.90)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       tikkiTr(context,
-                          ar: 'هذا الإعلان VIP حالياً',
-                          fr: 'Cette pub est VIP',
-                          en: 'This ad is currently VIP'),
+                          ar: 'هذا الإعلان مميّز حالياً',
+                          fr: 'Cette pub est مميّز',
+                          en: 'This ad is currently مميّز'),
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
@@ -5268,7 +4653,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
             const SizedBox(height: 10),
           ],
 
-          // VIP promotion request (manual payment)
+          // مميّز promotion request (manual payment)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
@@ -5281,7 +4666,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.workspace_premium_rounded, color: cs.primary),
+                    Icon(Icons.star_rounded, color: cs.primary),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
@@ -5289,9 +4674,9 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                         children: [
                           Text(
                             tikkiTr(context,
-                                ar: 'ترويج VIP',
-                                fr: 'Promotion VIP',
-                                en: 'VIP promotion'),
+                                ar: 'ترويج مميّز',
+                                fr: 'Promotion مميّز',
+                                en: 'مميّز promotion'),
                             style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                           const SizedBox(height: 2),
@@ -5314,7 +4699,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                     ),
                     Switch(
                       value: wantsVip,
-                      onChanged: vipLocked
+                      onChanged: (vipLocked || !vipOffersAvailable)
                           ? null
                           : (v) => setState(() {
                                 wantsVip = v;
@@ -5332,9 +4717,9 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                   Text(
                     tikkiTr(
                       context,
-                      ar: 'بدون VIP: سيظهر إعلانك داخل "إعلاناتي" فقط. لتظهر للناس في الصفحة الرئيسية، فعّل VIP.',
-                      fr: 'Sans VIP : votre pub reste dans "Mes pubs" uniquement. Pour la rendre publique, activez VIP.',
-                      en: 'Without VIP: your ad stays in "My ads" only. Enable VIP to make it public.',
+                      ar: 'بدون مميّز: سيظهر إعلانك داخل "إعلاناتي" فقط. لتظهر للناس في الصفحة الرئيسية، فعّل مميّز.',
+                      fr: 'Sans مميّز : votre pub reste dans "Mes pubs" uniquement. Pour la rendre publique, activez مميّز.',
+                      en: 'Without مميّز: your ad stays in "My ads" only. Enable مميّز to make it public.',
                     ),
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
@@ -5347,7 +4732,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                 ],
                 if (wantsVip) ...[
                   const SizedBox(height: 10),
-                  if (wallets.isEmpty) ...[
+                  if (!vipOffersAvailable) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 10),
@@ -5359,261 +4744,328 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: cs.error.withValues(alpha: 0.90)),
+                          Icon(Icons.info_outline_rounded,
+                              color: cs.onSurface.withValues(alpha: 0.70)),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               tikkiTr(
                                 context,
-                                ar: 'لم يتم إعداد وسائل الدفع من قبل الأدمن بعد. لن يعرف المستخدم أين يدفع.',
-                                fr: 'Aucune méthode de paiement n\'est configurée par l\'admin.',
-                                en: 'No payment methods configured by admin yet.',
+                                ar: 'لا توجد باقات مميّز متاحة حالياً. سيظهر إعلانك بدون مميّز حتى يقوم الأدمن بإضافة باقات.',
+                                fr: 'Aucun pack مميّز disponible pour le moment. La pub sera sans مميّز.',
+                                en: 'No مميّز packages available right now. Your ad will be created without مميّز.',
                               ),
                               style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                height: 1.25,
-                              ),
+                                  fontWeight: FontWeight.w800, height: 1.25),
                             ),
                           ),
                         ],
                       ),
                     ),
                   ] else ...[
+                    if (wallets.isEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: cs.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                              color: cs.outlineVariant.withAlpha(170)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded,
+                                color: cs.error.withValues(alpha: 0.90)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                tikkiTr(
+                                  context,
+                                  ar: 'لم يتم إعداد وسائل الدفع من قبل الأدمن بعد. لن يعرف المستخدم أين يدفع.',
+                                  fr: 'Aucune méthode de paiement n\'est configurée par l\'admin.',
+                                  en: 'No payment methods configured by admin yet.',
+                                ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      Text(
+                        tikkiTr(context,
+                            ar: 'اختر وسيلة الدفع',
+                            fr: 'Choisir une méthode',
+                            en: 'Choose payment method'),
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        value: wallets.any(
+                                (w) => w.id == (_selectedWalletId ?? '').trim())
+                            ? (_selectedWalletId ?? '').trim()
+                            : wallets.first.id,
+                        items: wallets
+                            .map(
+                              (w) => DropdownMenuItem<String>(
+                                value: w.id,
+                                child: Text(w.labelForLocale(langCode)),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: vipLocked
+                            ? null
+                            : (v) => setState(
+                                  () => _selectedWalletId = (v ?? '').trim(),
+                                ),
+                        decoration: InputDecoration(
+                          prefixIcon:
+                              const Icon(Icons.account_balance_wallet_rounded),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: cs.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                              color: cs.outlineVariant.withAlpha(170)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.account_balance_wallet_rounded,
+                                color: cs.onSurface.withValues(alpha: 0.70)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${selectedWalletLabel.isEmpty ? tikkiTr(context, ar: 'محفظة', fr: 'Portefeuille', en: 'Wallet') : selectedWalletLabel}: ${selectedWallet?.number ?? ''}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    (selectedWallet?.displayName ?? '').trim(),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color:
+                                          cs.onSurface.withValues(alpha: 0.62),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: tikkiTr(context,
+                                  ar: 'نسخ', fr: 'Copier', en: 'Copy'),
+                              onPressed: selectedWallet == null
+                                  ? null
+                                  : () async {
+                                      await Clipboard.setData(
+                                        ClipboardData(
+                                            text: selectedWallet!.number),
+                                      );
+                                      if (!mounted) return;
+                                      _toast(tikkiTr(context,
+                                          ar: 'تم النسخ',
+                                          fr: 'Copié',
+                                          en: 'Copied'));
+                                    },
+                              icon: const Icon(Icons.copy_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
                     Text(
                       tikkiTr(context,
-                          ar: 'اختر وسيلة الدفع',
-                          fr: 'Choisir une méthode',
-                          en: 'Choose payment method'),
+                          ar: 'اختر الباقة',
+                          fr: 'Choisir le pack',
+                          en: 'Choose package'),
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 6),
-                    DropdownButtonFormField<String>(
-                      value: wallets.any(
-                              (w) => w.id == (_selectedWalletId ?? '').trim())
-                          ? (_selectedWalletId ?? '').trim()
-                          : wallets.first.id,
-                      items: wallets
-                          .map(
-                            (w) => DropdownMenuItem<String>(
-                              value: w.id,
-                              child: Text(w.labelForLocale(langCode)),
-                            ),
-                          )
-                          .toList(growable: false),
-                      onChanged: vipLocked
+                    InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: (!vipOffersAvailable || vipLocked)
                           ? null
-                          : (v) => setState(
-                                () => _selectedWalletId = (v ?? '').trim(),
-                              ),
-                      decoration: InputDecoration(
-                        prefixIcon:
-                            const Icon(Icons.account_balance_wallet_rounded),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: cs.surface,
-                        borderRadius: BorderRadius.circular(14),
-                        border:
-                            Border.all(color: cs.outlineVariant.withAlpha(170)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.account_balance_wallet_rounded,
-                              color: cs.onSurface.withValues(alpha: 0.70)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${selectedWalletLabel.isEmpty ? tikkiTr(context, ar: 'محفظة', fr: 'Portefeuille', en: 'Wallet') : selectedWalletLabel}: ${selectedWallet?.number ?? ''}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  (selectedWallet?.displayName ?? '').trim(),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: cs.onSurface.withValues(alpha: 0.62),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: tikkiTr(context,
-                                ar: 'نسخ', fr: 'Copier', en: 'Copy'),
-                            onPressed: selectedWallet == null
-                                ? null
-                                : () async {
-                                    await Clipboard.setData(
-                                      ClipboardData(
-                                          text: selectedWallet!.number),
-                                    );
-                                    if (!mounted) return;
-                                    _toast(tikkiTr(context,
-                                        ar: 'تم النسخ',
-                                        fr: 'Copié',
-                                        en: 'Copied'));
-                                  },
-                            icon: const Icon(Icons.copy_rounded),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Text(
-                    tikkiTr(context,
-                        ar: 'اختر الباقة',
-                        fr: 'Choisir le pack',
-                        en: 'Choose package'),
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 6),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () async {
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      await Future<void>.delayed(
-                          const Duration(milliseconds: 40));
-                      if (!mounted) return;
-                      final picked = await showModalBottomSheet<_VipPkg>(
-                        context: context,
-                        showDragHandle: true,
-                        backgroundColor: cs.surface,
-                        builder: (ctx) {
-                          return SafeArea(
-                            child: ListView(
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                              children: [
-                                Text(
-                                  tikkiTr(ctx,
-                                      ar: 'اختر الباقة',
-                                      fr: 'Choisir le pack',
-                                      en: 'Choose package'),
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 16),
-                                ),
-                                const SizedBox(height: 10),
-                                ...adVipPkgs.map(
-                                  (p) => ListTile(
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
+                          : () async {
+                              FocusManager.instance.primaryFocus?.unfocus();
+                              await Future<void>.delayed(
+                                  const Duration(milliseconds: 40));
+                              if (!mounted) return;
+                              final picked =
+                                  await showModalBottomSheet<_VipPkg>(
+                                context: context,
+                                showDragHandle: true,
+                                backgroundColor: cs.surface,
+                                builder: (ctx) {
+                                  return SafeArea(
+                                    child: ListView(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          16, 8, 16, 16),
+                                      children: [
+                                        Text(
+                                          tikkiTr(ctx,
+                                              ar: 'اختر الباقة',
+                                              fr: 'Choisir le pack',
+                                              en: 'Choose package'),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 16),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        if (adVipPkgs.isEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 24),
+                                            child: Text(
+                                              tikkiTr(ctx,
+                                                  ar: 'لا توجد باقات مميّز متاحة حالياً.',
+                                                  fr: 'Aucun pack مميّز disponible.',
+                                                  en: 'No مميّز packages available.'),
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                color: cs.onSurface
+                                                    .withValues(alpha: 0.65),
+                                              ),
+                                            ),
+                                          )
+                                        else
+                                          ...adVipPkgs.map(
+                                            (p) => ListTile(
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
+                                              ),
+                                              leading: Icon(
+                                                Icons.star_rounded,
+                                                color: cs.primary,
+                                              ),
+                                              title: Text(
+                                                p.label(ctx),
+                                                style: const TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.w900),
+                                              ),
+                                              subtitle: Text(
+                                                'MRU ${_vipPriceForTarget(
+                                                  p,
+                                                  _targetWilayaId,
+                                                  countryWideMultiplier:
+                                                      countryMult,
+                                                  extraPercentPerWilaya:
+                                                      extraPct,
+                                                  multiWilayaCapMultiplier:
+                                                      capMult,
+                                                )}',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  color: cs.onSurface
+                                                      .withValues(alpha: 0.65),
+                                                ),
+                                              ),
+                                              trailing: const Icon(
+                                                  Icons.chevron_right_rounded),
+                                              onTap: () =>
+                                                  Navigator.of(ctx).pop(p),
+                                            ),
+                                          ),
+                                      ],
                                     ),
-                                    leading: Icon(
-                                      Icons.workspace_premium_rounded,
-                                      color: cs.primary,
-                                    ),
-                                    title: Text(
-                                      p.label(ctx),
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w900),
-                                    ),
-                                    subtitle: Text(
-                                      'MRU ${_vipPriceForTarget(
-                                        p,
+                                  );
+                                },
+                              );
+                              if (!mounted) return;
+                              if (picked != null) {
+                                setState(() => selectedVipPkg = picked);
+                              }
+                            },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                          contentPadding: const EdgeInsetsDirectional.fromSTEB(
+                              12, 14, 12, 14),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                selectedVipPkg == null
+                                    ? (vipOffersAvailable
+                                        ? tikkiTr(context,
+                                            ar: 'اضغط للاختيار',
+                                            fr: 'Appuyez pour choisir',
+                                            en: 'Tap to choose')
+                                        : tikkiTr(context,
+                                            ar: 'غير متاح حالياً',
+                                            fr: 'Indisponible',
+                                            en: 'Not available'))
+                                    : '${selectedVipPkg!.label(context)} • MRU ${_vipPriceForTarget(
+                                        selectedVipPkg!,
                                         _targetWilayaId,
                                         countryWideMultiplier: countryMult,
                                         extraPercentPerWilaya: extraPct,
                                         multiWilayaCapMultiplier: capMult,
                                       )}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        color: cs.onSurface
-                                            .withValues(alpha: 0.65),
-                                      ),
-                                    ),
-                                    trailing:
-                                        const Icon(Icons.chevron_right_rounded),
-                                    onTap: () => Navigator.of(ctx).pop(p),
-                                  ),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: selectedVipPkg == null
+                                      ? cs.onSurface.withValues(alpha: 0.55)
+                                      : cs.onSurface,
                                 ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                      if (!mounted) return;
-                      if (picked != null) {
-                        setState(() => selectedVipPkg = picked);
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        contentPadding: const EdgeInsetsDirectional.fromSTEB(
-                            12, 14, 12, 14),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              selectedVipPkg == null
-                                  ? tikkiTr(context,
-                                      ar: 'اضغط للاختيار',
-                                      fr: 'Appuyez pour choisir',
-                                      en: 'Tap to choose')
-                                  : '${selectedVipPkg!.label(context)} • MRU ${_vipPriceForTarget(
-                                      selectedVipPkg!,
-                                      _targetWilayaId,
-                                      countryWideMultiplier: countryMult,
-                                      extraPercentPerWilaya: extraPct,
-                                      multiWilayaCapMultiplier: capMult,
-                                    )}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: selectedVipPkg == null
-                                    ? cs.onSurface.withValues(alpha: 0.55)
-                                    : cs.onSurface,
                               ),
                             ),
-                          ),
-                          Icon(Icons.keyboard_arrow_down_rounded,
-                              color: cs.onSurface.withValues(alpha: 0.70)),
-                        ],
+                            Icon(Icons.keyboard_arrow_down_rounded,
+                                color: cs.onSurface.withValues(alpha: 0.70)),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: txCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: tikkiTr(
-                        context,
-                        ar: 'رقم العملية${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
-                        fr: 'Référence de paiement${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
-                        en: 'Payment reference${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: txCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: tikkiTr(
+                          context,
+                          ar: 'رقم العملية${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                          fr: 'Référence de paiement${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                          en: 'Payment reference${selectedWalletLabel.isEmpty ? '' : ' ($selectedWalletLabel)'}',
+                        ),
+                        hintText: tikkiTr(
+                          context,
+                          ar: 'مثال: 36566606',
+                          fr: 'Ex: 36566606',
+                          en: 'e.g. 36566606',
+                        ),
+                        helperText: tikkiTr(
+                          context,
+                          ar: 'أدخل الرقم كما ظهر لك بعد إتمام الدفع',
+                          fr: 'Saisissez la référence reçue après paiement',
+                          en: 'Enter the reference you received after payment',
+                        ),
+                        prefixIcon:
+                            const Icon(Icons.confirmation_number_rounded),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14)),
                       ),
-                      hintText: tikkiTr(
-                        context,
-                        ar: 'مثال: 36566606',
-                        fr: 'Ex: 36566606',
-                        en: 'e.g. 36566606',
-                      ),
-                      helperText: tikkiTr(
-                        context,
-                        ar: 'أدخل الرقم كما ظهر لك بعد إتمام الدفع',
-                        fr: 'Saisissez la référence reçue après paiement',
-                        en: 'Enter the reference you received after payment',
-                      ),
-                      prefixIcon: const Icon(Icons.confirmation_number_rounded),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14)),
                     ),
-                  ),
+                  ],
                 ],
               ],
             ),
@@ -5644,7 +5096,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                     }
 
                     final isNew = widget.initial == null;
-                    // Normal ads can be saved without VIP. They become public only after VIP activation.
+                    // Normal ads can be saved without مميّز. They become public only after مميّز activation.
                     if (isNew && (widget.ownerUserId ?? '').trim().isEmpty) {
                       _toast(tikkiTr(context,
                           ar: 'سجل الدخول أولاً',
@@ -5680,9 +5132,9 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                       }
                       if (selectedVipPkg == null) {
                         _toast(tikkiTr(context,
-                            ar: 'اختر باقة VIP أولاً',
-                            fr: 'Choisissez un pack VIP',
-                            en: 'Choose a VIP package'));
+                            ar: 'اختر باقة مميّز أولاً',
+                            fr: 'Choisissez un pack مميّز',
+                            en: 'Choose a مميّز package'));
                         return;
                       }
                       if (txCtrl.text.trim().isEmpty) {
@@ -5735,7 +5187,7 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
                     final promoReqAtMs =
                         effectiveWantsVip ? (prev?.promoReqAtMs ?? now) : null;
                     final promoApprAtMs = prev?.promoApprAtMs;
-                    // VIP becomes active only after approval. Keep existing until/approval.
+                    // مميّز becomes active only after approval. Keep existing until/approval.
                     final promoUntilMs = prev?.promoUntilMs;
 
                     final target = _targetWilayaId.trim();
@@ -5839,7 +5291,7 @@ class _PromoListTile extends StatelessWidget {
                 height: 48,
                 radius: BorderRadius.circular(12),
                 fallbackIcon: item.isPromoApproved
-                    ? Icons.workspace_premium_rounded
+                    ? Icons.star_rounded
                     : Icons.campaign_rounded,
               ),
               const SizedBox(width: 12),
@@ -5872,7 +5324,7 @@ class _PromoListTile extends StatelessWidget {
                                   Border.all(color: cs.primary.withAlpha(70)),
                             ),
                             child: Text(
-                              'VIP',
+                              'مميّز',
                               style: TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 11.5,
@@ -6282,7 +5734,7 @@ class _HalfTile extends StatelessWidget {
   }
 }
 
-/// Compact card used in the VIP Top strip under the header.
+/// Compact card used in the مميّز Top strip under the header.
 class _VipMiniCard extends StatelessWidget {
   const _VipMiniCard({required this.product, required this.onTap});
 

@@ -106,7 +106,7 @@ class _IntroCard extends StatelessWidget {
 
 class _PolicyTile extends StatelessWidget {
   const _PolicyTile({required this.article, required this.isRtl});
-  final TikkiPolicyArticle article;
+  final TkiiPolicyArticle article;
   final bool isRtl;
 
   @override

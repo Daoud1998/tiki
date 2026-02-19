@@ -81,7 +81,7 @@ class DiscountsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(width: 6),
                         Expanded(
-                          child: TikkiSearchLangBar(
+                          child: TkiiSearchLangBar(
                             hint: _tr(context,
                                 ar: 'ابحث داخل التخفيضات',
                                 fr: 'Rechercher dans les promos',

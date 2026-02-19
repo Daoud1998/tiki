@@ -10,4 +10,4 @@ const String kSupportWhatsApp = '+22236566606';
 const String kSupportPhone = '+22236566606';
 
 /// Support email.
-const String kSupportEmail = 'support@tiki.app';
+const String kSupportEmail = 'tikisupp@gmail.com';

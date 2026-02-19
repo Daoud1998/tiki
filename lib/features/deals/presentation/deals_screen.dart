@@ -76,7 +76,7 @@ class DealsScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          TikkiSearchLangBar(
+          TkiiSearchLangBar(
             hint: s.searchHint,
             onSearchTap: () => context.go('/search?deals=1'),
           ),

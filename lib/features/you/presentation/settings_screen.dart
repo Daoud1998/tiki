@@ -3,17 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
-import 'package:tiki/features/notifications/presentation/notifications_controller.dart'
-    show notificationsUnreadCountProvider;
-import 'package:tiki/features/receipts/presentation/receipts_controller.dart';
-
-import 'package:tiki/app/state/app_setings.dart';
-import 'package:tiki/core/state/auth_state.dart' as auth;
-import 'package:tiki/core/state/seller_phone_search_state.dart';
-import 'package:tiki/core/utils/name_utils.dart';
-
 import '../../../app/localization/l10n.dart';
+import '../../../app/state/app_setings.dart';
+import '../../../core/state/admin_state.dart';
+import '../../../core/state/auth_state.dart' as auth;
+import '../../../core/state/notifications_controller.dart';
+import '../../../core/state/seller_phone_search_state.dart';
+import '../../../core/utils/name_utils.dart';
+import '../../product/state/products_providers.dart';
 
 /// Whether push notifications are enabled for the signed-in user.
 ///
@@ -91,8 +88,10 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final localeOverride = ref.watch(localeOverrideProvider);
     final authState = ref.watch(auth.authControllerProvider);
-    final receipts = ref.watch(receiptsControllerProvider);
-    final showReceipts = authState.isSignedIn && receipts.isNotEmpty;
+    final isAdmin = ref.watch(isAdminProvider).maybeWhen(
+          data: (v) => v,
+          orElse: () => false,
+        );
 
     final uid = (authState.userId ?? '').trim();
     final notifEnabledAsync = (authState.isSignedIn && uid.isNotEmpty)
@@ -138,32 +137,6 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           _AccountCard(authState: authState),
           const SizedBox(height: 14),
-          if (showReceipts) ...[
-            _GroupCard(
-              title:
-                  _pick3(s, ar: 'المدفوعات', fr: 'Paiements', en: 'Payments'),
-              children: [
-                _SettingTile(
-                  icon: Icons.receipt_long_rounded,
-                  title:
-                      _pick3(s, ar: 'الفواتير', fr: 'Factures', en: 'Receipts'),
-                  subtitle: _pick3(s,
-                      ar: 'طباعة / مشاركة / متابعة',
-                      fr: 'Imprimer / Partager / Suivre',
-                      en: 'Print / Share / Track'),
-                  trailing: Icon(
-                    Icons.chevron_right_rounded,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55),
-                  ),
-                  onTap: () => context.push('/you/receipts'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-          ],
           _GroupCard(
             title: _pick3(s,
                 ar: 'التفضيلات', fr: 'Préférences', en: 'Preferences'),
@@ -335,7 +308,7 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               _SettingTile(
                 icon: Icons.info_rounded,
-                title: _pick3(s, ar: 'عن Tikki', fr: 'À propos', en: 'About'),
+                title: _pick3(s, ar: 'عن Tki', fr: 'À propos', en: 'About'),
                 subtitle: _pick3(s,
                     ar: 'تعرف على التطبيق',
                     fr: 'Découvrir l’app',
@@ -903,7 +876,7 @@ class _AccountCard extends ConsumerWidget {
                 final t = DateTime.now().millisecondsSinceEpoch.toString();
                 context.go('/home?r=logout_$t');
               }
-},
+            },
             child: Text(isSignedIn
                 ? (s.isAr
                     ? 'خروج'

@@ -19,7 +19,7 @@ class PaymentWallet {
   /// Localized labels: {"ar":"بنكيلي","fr":"Bankily","en":"Bankily"}
   final Map<String, String> labels;
 
-  /// Receiver name shown to users (e.g. Tikki).
+  /// Receiver name shown to users (e.g. Tkii).
   final String displayName;
 
   /// Wallet number (e.g. +222..).
@@ -104,7 +104,7 @@ class PaymentsSettingsRepository {
     if (out.isEmpty) {
       final bankily = (data['bankilyNumber'] ?? data['bankily'] ?? '').toString().trim();
       final masrivi = (data['masriviNumber'] ?? data['masrivi'] ?? '').toString().trim();
-      final name = (data['receiverName'] ?? data['name'] ?? 'Tikki').toString().trim();
+      final name = (data['receiverName'] ?? data['name'] ?? 'Tkii').toString().trim();
 
       if (bankily.isNotEmpty) {
         out.add(PaymentWallet(

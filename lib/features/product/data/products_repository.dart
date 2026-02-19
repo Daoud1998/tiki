@@ -9,8 +9,8 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
-import 'package:tiki/core/search/ma_search_tokens.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
+import '../../../core/search/ma_search_tokens.dart';
+import '../domain/app_product.dart';
 
 final productsRepositoryProvider =
     Provider<ProductsRepository>((ref) => ProductsRepository());
@@ -71,6 +71,22 @@ class ProductsRepository {
     if (v is int) return v;
     if (v is num) return v.toInt();
     return int.tryParse(v.toString()) ?? 0;
+  }
+
+  /// Public (search/feed) visibility check.
+  ///
+  /// Older products may miss fields like `reviewStatus` or `isHidden`.
+  /// We treat missing `reviewStatus` as approved, and missing `isHidden` as not hidden.
+  bool _isPublicProductData(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString();
+    // Legacy products sometimes used `approved` as a status.
+    if (status != 'active' && status != 'approved') return false;
+
+    if (data['isHidden'] == true) return false;
+
+    final rs = data['reviewStatus'];
+    if (rs == 'pending' || rs == 'rejected') return false;
+    return true;
   }
 
   /// Normalize a phone-like input and return the **last 8 digits** (Mauritania-friendly).
@@ -481,25 +497,19 @@ class ProductsRepository {
   }) {
     final primary = _col
         .where('sellerId', isEqualTo: sellerId)
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .where('reviewStatus', isEqualTo: 'approved')
+        .where('status', whereIn: const ['active', 'approved'])
         .orderBy('publishedAt', descending: true)
         .limit(limit);
 
     // Fallback avoids composite index requirements (sorting is done client-side).
-    final fallback = _col
-        .where('sellerId', isEqualTo: sellerId)
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .where('reviewStatus', isEqualTo: 'approved')
-        .limit(limit);
+    final fallback =
+        _col.where('sellerId', isEqualTo: sellerId).limit(limit * 3);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
-        final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+        final visibleDocs = s.docs.where((d) => _isPublicProductData(d.data()));
         final visible = visibleDocs.map(AppProduct.fromDoc).toList();
         visible.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
         return visible;
@@ -509,25 +519,22 @@ class ProductsRepository {
 
   Stream<List<AppProduct>> watchActiveFeed({int limit = 50}) {
     final primary = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .where('reviewStatus', isEqualTo: 'approved')
+        .where('status', whereIn: const ['active', 'approved'])
         .orderBy('publishedAt', descending: true)
         .limit(limit);
-    final fallback = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .where('reviewStatus', isEqualTo: 'approved')
-        .limit(limit);
+    final fallback =
+        _col.orderBy('publishedAt', descending: true).limit(limit * 8);
 
     return _watchWithFallback(
       primary: preferIndexedQueries ? primary : fallback,
       fallback: fallback,
       mapper: (s) {
-        final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+        final visibleDocs = s.docs.where((d) => _isPublicProductData(d.data()));
         final visible = visibleDocs.map(AppProduct.fromDoc).toList();
         // _applyVipSorting also sorts newest first within rank.
-        return _applyVipSorting(visible);
+        final sorted = _applyVipSorting(visible);
+        if (sorted.length <= limit) return sorted;
+        return sorted.sublist(0, limit);
       },
     );
   }
@@ -545,89 +552,13 @@ class ProductsRepository {
     final isPhoneQuery = tail8 != null && _looksLikePhoneQuery(q);
 
     if (isPhoneQuery) {
-      Query<Map<String, dynamic>> ref = _col
-          .where('status', isEqualTo: 'active')
-          .where('isHidden', isEqualTo: false)
-          .where('reviewStatus', isEqualTo: 'approved');
-
-      if (categoryId != null && categoryId.trim().isNotEmpty) {
-        // Optional: keep category filter even for phone search.
-        // May require an extra composite index; fallback will still work.
-        ref = ref.where('category', isEqualTo: categoryId.trim());
-      }
-
-      final primary = ref
-          .where('phoneTail8', isEqualTo: tail8)
+      final stream = _col
           .orderBy('publishedAt', descending: true)
-          .limit(limit);
+          .limit(limit * 25)
+          .snapshots();
 
-      // Fallback: scan a slice of active listings and filter locally by phone tail.
-      final fallback = _col
-          .where('status', isEqualTo: 'active')
-          .where('isHidden', isEqualTo: false)
-          .where('reviewStatus', isEqualTo: 'approved')
-          .limit(limit * 5);
-
-      return _watchWithFallback(
-        primary: preferIndexedQueries ? primary : fallback,
-        fallback: fallback,
-        mapper: (s) {
-          final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
-          var items = visibleDocs.map(AppProduct.fromDoc).toList();
-
-          if (categoryId != null && categoryId.trim().isNotEmpty) {
-            final c = categoryId.trim();
-            items = items
-                .where((p) => (p.category ?? '').trim() == c)
-                .toList(growable: false);
-          }
-
-          items = items
-              .where((p) => phoneTail8(p.phone ?? '') == tail8)
-              .toList(growable: false);
-
-          items = items.toList()
-            ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-          return _applyVipSorting(items);
-        },
-      );
-    }
-
-    // Normal text mode: query tokens (AR/FR/EN + joins like iphone 13 -> iphone13).
-    // Firestore arrayContainsAny supports up to 10 values.
-    final tokens = maQueryTokens(q, maxTokens: 10);
-
-    Query<Map<String, dynamic>> ref = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .where('reviewStatus', isEqualTo: 'approved');
-
-    if (categoryId != null && categoryId.trim().isNotEmpty) {
-      // Stored field name is `category` in this project.
-      ref = ref.where('category', isEqualTo: categoryId.trim());
-    }
-
-    // Primary: server-side token search (may require composite indexes).
-    final primary = (tokens.isNotEmpty)
-        ? ref
-            .where('searchTokens', arrayContainsAny: tokens)
-            .orderBy('publishedAt', descending: true)
-            .limit(limit)
-        : ref.orderBy('publishedAt', descending: true).limit(limit);
-
-    // Fallback: fetch a slice of active feed and filter locally.
-    // (This avoids missing-index errors, at the cost of precision/perf.)
-    final fallback = _col
-        .where('status', isEqualTo: 'active')
-        .where('isHidden', isEqualTo: false)
-        .where('reviewStatus', isEqualTo: 'approved')
-        .limit(limit * 3);
-
-    return _watchWithFallback(
-      primary: preferIndexedQueries ? primary : fallback,
-      fallback: fallback,
-      mapper: (s) {
-        final visibleDocs = s.docs.where((d) => d.data()['isHidden'] != true);
+      return stream.map((s) {
+        final visibleDocs = s.docs.where((d) => _isPublicProductData(d.data()));
         var items = visibleDocs.map(AppProduct.fromDoc).toList();
 
         if (categoryId != null && categoryId.trim().isNotEmpty) {
@@ -637,18 +568,49 @@ class ProductsRepository {
               .toList(growable: false);
         }
 
-        if (tokens.isNotEmpty) {
-          final tset = tokens.toSet();
-          items = items
-              .where((p) => p.searchTokens.any(tset.contains))
-              .toList(growable: false);
-        }
+        items = items
+            .where((p) => phoneTail8(p.phone ?? '') == tail8)
+            .toList(growable: false);
 
-        items = items.toList()
-          ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-        return _applyVipSorting(items);
-      },
-    );
+        items.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+        final sorted = _applyVipSorting(items);
+        if (sorted.length <= limit) return sorted;
+        return sorted.sublist(0, limit);
+      });
+    }
+
+    // Normal text mode: query tokens (AR/FR/EN + joins like iphone 13 -> iphone13).
+    // Firestore arrayContainsAny supports up to 10 values.
+    final tokens = maQueryTokens(q, maxTokens: 10);
+
+    final stream = _col
+        .orderBy('publishedAt', descending: true)
+        .limit(limit * 25)
+        .snapshots();
+
+    return stream.map((s) {
+      final visibleDocs = s.docs.where((d) => _isPublicProductData(d.data()));
+      var items = visibleDocs.map(AppProduct.fromDoc).toList();
+
+      if (categoryId != null && categoryId.trim().isNotEmpty) {
+        final c = categoryId.trim();
+        items = items
+            .where((p) => (p.category ?? '').trim() == c)
+            .toList(growable: false);
+      }
+
+      if (tokens.isNotEmpty) {
+        final tset = tokens.toSet();
+        items = items
+            .where((p) => p.searchTokens.any(tset.contains))
+            .toList(growable: false);
+      }
+
+      items.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+      final sorted = _applyVipSorting(items);
+      if (sorted.length <= limit) return sorted;
+      return sorted.sublist(0, limit);
+    });
   }
 
 // ---------- Search tokens ----------

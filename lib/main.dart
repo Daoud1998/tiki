@@ -15,7 +15,7 @@ Future<void> main() async {
 
   // Prints the Android App Signature (11 chars) used for WhatsApp "Autofill" templates.
   // Look in the debug console for: APP_SIGNATURE: XXXXXXXXXXX
-  if (Platform.isAndroid) {
+  if (kDebugMode && Platform.isAndroid) {
     try {
       final sig = await SmsAutoFill().getAppSignature;
       debugPrint('APP_SIGNATURE: $sig');
@@ -50,15 +50,17 @@ Future<void> main() async {
 
   // Trigger a token request once at startup so the "debug secret" is printed in Logcat
   // when using AndroidProvider.debug.
-  try {
-    final token = await FirebaseAppCheck.instance.getToken(true);
-    debugPrint('APPCHECK_TOKEN_READY: ${token != null}');
-  } catch (e) {
-    debugPrint('APPCHECK_TOKEN_ERROR: $e');
-    debugPrint(
-      'If you are in DEBUG mode, copy the "debug secret" from Logcat and add it in: '
-      'Firebase Console → App Check → (your app) → Manage debug tokens.',
-    );
+  if (kDebugMode) {
+    try {
+      final token = await FirebaseAppCheck.instance.getToken(true);
+      debugPrint('APPCHECK_TOKEN_READY: ${token != null}');
+    } catch (e) {
+      debugPrint('APPCHECK_TOKEN_ERROR: $e');
+      debugPrint(
+        'If you are in DEBUG mode, copy the "debug secret" from Logcat and add it in: '
+        'Firebase Console → App Check → (your app) → Manage debug tokens.',
+      );
+    }
   }
 
   // Keep token refresh enabled (default = true).

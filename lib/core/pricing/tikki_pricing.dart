@@ -5,8 +5,8 @@ import '../monetization/pricing_service.dart';
 ///
 /// - Products: percentage-based (with category fallback when price is 0).
 /// - Ads: fixed packages (handled elsewhere).
-class TikkiPricing {
-  const TikkiPricing._();
+class TkiiPricing {
+  const TkiiPricing._();
 
   /// Allowed VIP durations (days).
   static const List<int> vipDays = <int>[1, 3, 7, 15, 30, 60];

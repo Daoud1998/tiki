@@ -188,7 +188,7 @@ class ReceiptPdfService {
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
-                          pw.Text('Tikki', style: h),
+                          pw.Text('Tkii', style: h),
                           pw.SizedBox(height: 4),
                           pw.Text(
                             tr(
@@ -297,7 +297,7 @@ class ReceiptPdfService {
   static Future<void> sharePdf(ServiceReceipt r,
       {required String localeCode}) async {
     final bytes = await buildPdf(r, localeCode: localeCode);
-    await Printing.sharePdf(bytes: bytes, filename: 'Tikki_${r.id}.pdf');
+    await Printing.sharePdf(bytes: bytes, filename: 'Tkii_${r.id}.pdf');
   }
 
   static Future<void> printPdf(ServiceReceipt r,

@@ -3,16 +3,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/state/auth_state.dart' as auth;
+import '../core/state/notifications_controller.dart';
+import '../features/auth/presentation/phone_login_screen.dart';
+import '../features/home/presentation/home_screen.dart';
 import 'localization/l10n.dart';
-import 'package:tiki/core/state/auth_state.dart' as auth;
-import 'package:tiki/features/notifications/presentation/notifications_controller.dart'
-    show notificationsUnreadCountProvider;
+
 
 // Screens
 import '../features/splash/presentation/splash_screen.dart';
 import '../features/notifications/presentation/notifications_screen.dart';
-import 'package:tiki/features/home/presentation/home_screen.dart'
-    show HomeScreen, PromoAdsScreen;
+
 import '../features/categories/presentation/categories_screen.dart';
 import '../features/search/presentation/search_results_screen.dart';
 import '../features/product/presentation/product_details_screen.dart';
@@ -40,8 +41,6 @@ import '../features/content/presentation/policy_article_screen.dart';
 import '../features/kyc/presentation/verification_screen.dart';
 import '../features/kyc/presentation/kyc_submit_screen.dart';
 
-import 'package:tiki/features/auth/presentation/phone_login_screen.dart'
-    show PhoneLoginScreen;
 
 /// Navigator keys
 ///
@@ -79,7 +78,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final requiresAuth = state.matchedLocation.startsWith('/publish') ||
           state.matchedLocation.startsWith('/you/listings') ||
           state.matchedLocation == '/account/edit' ||
-          state.matchedLocation.startsWith('/you/verify/submit');
+          state.matchedLocation.startsWith('/you/verify/submit') ||
+          state.matchedLocation.startsWith('/admin');
 
       if (requiresAuth && !authState.isSignedIn) {
         final next = Uri.encodeComponent(loc);
@@ -123,6 +123,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return LegalDocumentScreen(docId: doc);
         },
       ),
+      
 
       // Temu-style content pages
       GoRoute(
@@ -152,10 +153,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/promo-ads',
-        builder: (context, state) {
-          final mine = state.uri.queryParameters['mine'] == '1';
-          return PromoAdsScreen(mineOnly: mine);
-        },
+        redirect: (context, state) => '/you/support',
       ),
       GoRoute(
         path: '/support-chat',

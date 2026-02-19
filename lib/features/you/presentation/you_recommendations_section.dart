@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/state/likes_controller.dart';
-import '../../../../core/state/recently_viewed_controller.dart';
-import '../../../../core/widgets/product_card.dart';
-import 'package:tiki/features/product/domain/app_product.dart';
-import 'package:tiki/features/product/state/products_providers.dart';
+import '../../../core/state/likes_controller.dart';
+import '../../../core/state/recently_viewed_controller.dart';
+import '../../../core/widgets/product_card.dart';
+import '../../product/domain/app_product.dart';
+import '../../product/state/products_providers.dart';
+
 
 /// "قد تعجبك" section for You page.
 ///

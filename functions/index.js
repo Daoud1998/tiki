@@ -32,32 +32,6 @@ function assertTwilioConfigured() {
 }
 
 
-function maskPhone(e164) {
-  const s = String(e164 || "");
-  if (s.length <= 6) return s;
-  return s.slice(0, 4) + "…" + s.slice(-2);
-}
-
-function wrapCallable(name, handler) {
-  return functions.region(REGION).https.onCall(async (data, context) => {
-    try {
-      return await handler(data, context);
-    } catch (e) {
-      // Preserve expected callable errors
-      if (e instanceof HttpsError) throw e;
-
-      console.error(`[${name}] UNHANDLED`, e);
-      throw new HttpsError("internal", "UNHANDLED", {
-        name,
-        message: e && e.message ? String(e.message) : "unknown",
-        stack: e && e.stack ? String(e.stack).slice(0, 1500) : null,
-        code: e && e.code ? e.code : null,
-        status: e && e.status ? e.status : null,
-      });
-    }
-  });
-}
-
 function num(v, dflt) {
   if (typeof v === "number" && !Number.isNaN(v)) return v;
   const asNum = Number(v);
@@ -185,6 +159,7 @@ exports.createProduct = functions
     const kycSettingsRef = db.doc("app_settings/kyc");
     const kycReqRef = db.doc(`kyc_requests/${uid}`);
     const statsRef = db.doc(`user_stats/${uid}`);
+    const userRef = db.doc(`users/${uid}`);
     const productsCol = db.collection("products");
 
     const nowDate = new Date();
@@ -193,12 +168,13 @@ exports.createProduct = functions
     const nowTs = Timestamp.fromMillis(nowMs);
 
     return db.runTransaction(async (tx) => {
-      const [limitsSnap, kycSettingsSnap, kycReqSnap, statsSnap] =
+      const [limitsSnap, kycSettingsSnap, kycReqSnap, statsSnap, userSnap] =
         await Promise.all([
           tx.get(limitsRef),
           tx.get(kycSettingsRef),
           tx.get(kycReqRef),
           tx.get(statsRef),
+          tx.get(userRef),
         ]);
 
       const limits = limitsSnap.exists ? limitsSnap.data() || {} : {};
@@ -206,6 +182,11 @@ exports.createProduct = functions
         ? kycSettingsSnap.data() || {}
         : {};
       const kycReq = kycReqSnap.exists ? kycReqSnap.data() || {} : {};
+
+const user = userSnap && userSnap.exists ? userSnap.data() || {} : {};
+if (user.publishingDisabled === true || user.publishDisabled === true) {
+  throw new HttpsError("permission-denied", "PUBLISHING_DISABLED");
+}
 
       const isVerified = kycReqSnap.exists && kycReq.status === "approved";
 
@@ -742,29 +723,22 @@ exports.signInWithFpnv = functions
       throw new HttpsError("permission-denied", "INVALID_PHONE_IN_TOKEN");
     }
 
-    // Get-or-create user by phoneNumber, then mint a Firebase custom token.
-    // Fallback to deterministic UID if Auth lookup fails unexpectedly.
-    let uid;
-    let userRecord = null;
+    // Get-or-create user by phoneNumber, then mint a Firebase custom token
+    let userRecord;
     try {
       userRecord = await admin.auth().getUserByPhoneNumber(phoneNumber);
-      uid = userRecord.uid;
     } catch (e) {
       const code = e && e.code ? String(e.code) : "";
       if (code.includes("auth/user-not-found")) {
         userRecord = await admin.auth().createUser({ phoneNumber });
-        uid = userRecord.uid;
       } else {
         console.error("[signInWithFpnv] getUserByPhoneNumber failed:", e);
-        uid = uidFromPhoneE164(phoneNumber);
-        try {
-          userRecord = await admin.auth().getUser(uid);
-        } catch (_) {}
+        throw new HttpsError("internal", "AUTH_LOOKUP_FAILED");
       }
     }
 
-    const customToken = await admin.auth().createCustomToken(uid);
-    return { ok: true, uid, phoneNumber, customToken };
+    const customToken = await admin.auth().createCustomToken(userRecord.uid);
+    return { ok: true, uid: userRecord.uid, phoneNumber, customToken };
   });
 /**
  * -----------------------------------------------------------------------------
@@ -823,14 +797,6 @@ function normalizeE164(raw) {
   if (!/^\+[0-9]{7,19}$/.test(s))
     throw new HttpsError("invalid-argument", "PHONE_E164_INVALID");
   return s;
-}
-
-// Deterministic UID fallback (used only when Firebase Auth lookup fails unexpectedly).
-// This avoids blocking sign-in if Auth lookups are temporarily unavailable.
-function uidFromPhoneE164(phoneE164) {
-  const h = crypto.createHash("sha256").update(String(phoneE164)).digest("hex");
-  // 2 + 24 = 26 chars (safe and short)
-  return `p_${h.slice(0, 24)}`;
 }
 
 function pickLang(raw) {
@@ -1113,41 +1079,44 @@ exports.verifyWhatsappOtp = functions
       return { ok: true };
     });
 
-    // Get-or-create Firebase user by phoneNumber, then mint a custom token.
-    // Fallback to deterministic UID if Auth lookup fails unexpectedly.
-    let uid;
-    let userRecord = null;
+    // Get-or-create Firebase user by phoneNumber, then mint a custom token
+    let userRecord;
     try {
       userRecord = await admin.auth().getUserByPhoneNumber(phoneE164);
-      uid = userRecord.uid;
     } catch (e) {
       const code = e && e.code ? String(e.code) : "";
       if (code.includes("auth/user-not-found")) {
         userRecord = await admin.auth().createUser({ phoneNumber: phoneE164 });
-        uid = userRecord.uid;
       } else {
         console.error("[verifyWhatsappOtp] getUserByPhoneNumber failed:", e);
-        uid = uidFromPhoneE164(phoneE164);
-        try {
-          userRecord = await admin.auth().getUser(uid);
-        } catch (_) {}
+        throw new HttpsError("internal", "AUTH_LOOKUP_FAILED");
       }
     }
 
-    // Ensure users/{uid} exists (optional but useful for your app)
-    const userDocRef = db.collection("users").doc(uid);
-    const userSnap = await userDocRef.get();
-    const userPatch = {
-      uid,
-      phoneE164,
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedAtMs: nowMs,
-    };
-    if (!userSnap.exists) {
-      userPatch.createdAt = FieldValue.serverTimestamp();
-      userPatch.createdAtMs = nowMs;
+    const uid = userRecord.uid;    // Ensure users/{uid} exists (optional but useful for your app)
+    // NOTE: If the Cloud Function service account is missing Firestore IAM permissions,
+    // this block would throw and break the whole OTP flow. We treat it as best-effort.
+    try {
+      const userDocRef = db.collection("users").doc(uid);
+      const userSnap = await userDocRef.get();
+      const userPatch = {
+        uid,
+        phoneE164,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedAtMs: nowMs,
+      };
+      if (!userSnap.exists) {
+        userPatch.createdAt = FieldValue.serverTimestamp();
+        userPatch.createdAtMs = nowMs;
+      }
+      await userDocRef.set(userPatch, { merge: true });
+    } catch (e) {
+      console.warn(
+        "[twilioVerifyOtp] Firestore user doc write skipped:",
+        e && e.message ? String(e.message) : e
+      );
     }
-    await userDocRef.set(userPatch, { merge: true });
+
 
     const customToken = await admin
       .auth()
@@ -1168,109 +1137,97 @@ exports.verifyWhatsappOtp = functions
  *   TWILIO_AUTH_TOKEN
  *   TWILIO_VERIFY_SERVICE_SID
  */
+exports.twilioStartOtp = functions
+  .region(REGION)
+  .https.onCall(async (data) => {
+    assertTwilioConfigured();
 
-exports.twilioStartOtp = wrapCallable("twilioStartOtp", async (data, context) => {
-  assertTwilioConfigured();
+    const phoneE164 = normalizeE164(data && data.phoneE164);
+    const channelRaw = (data && data.channel ? String(data.channel) : "sms")
+      .trim()
+      .toLowerCase();
+    const channel = channelRaw === "whatsapp" ? "whatsapp" : "sms";
 
-  const phoneE164 = normalizeE164(data && data.phoneE164);
-  const channelRaw = (data && data.channel ? String(data.channel) : "sms")
-    .trim()
-    .toLowerCase();
-  const channel = channelRaw === "whatsapp" ? "whatsapp" : "sms";
+    try {
+      await twilioClient.verify.v2
+        .services(TWILIO_VERIFY_SERVICE_SID)
+        .verifications.create({ to: phoneE164, channel });
+      return { ok: true };
+    } catch (e) {
+      console.error("[twilioStartOtp] Twilio error:", e);
+      throw new HttpsError("internal", "TWILIO_SEND_FAILED", {
+        message: e && e.message ? String(e.message) : "unknown",
+        code: e && e.code ? e.code : null,
+        status: e && e.status ? e.status : null,
+      });
+    }
+  });
 
-  console.log("[twilioStartOtp] to:", maskPhone(phoneE164), "channel:", channel, "appCheck:", !!(context && context.app));
+exports.twilioVerifyOtp = functions
+  .region(REGION)
+  .https.onCall(async (data) => {
+    assertTwilioConfigured();
 
-  try {
-    await twilioClient.verify.v2
-      .services(TWILIO_VERIFY_SERVICE_SID)
-      .verifications.create({ to: phoneE164, channel });
-    return { ok: true };
-  } catch (e) {
-    console.error("[twilioStartOtp] Twilio error:", e);
-    throw new HttpsError("internal", "TWILIO_SEND_FAILED", {
-      message: e && e.message ? String(e.message) : "unknown",
-      code: e && e.code ? e.code : null,
-      status: e && e.status ? e.status : null,
-    });
-  }
-});
+    const phoneE164 = normalizeE164(data && data.phoneE164);
+    const code = (data && data.code ? String(data.code) : "").trim();
 
+    if (!/^\d{4,10}$/.test(code)) {
+      throw new HttpsError("invalid-argument", "OTP_INVALID_FORMAT");
+    }
 
-exports.twilioVerifyOtp = wrapCallable("twilioVerifyOtp", async (data, context) => {
-  assertTwilioConfigured();
+    let check;
+    try {
+      check = await twilioClient.verify.v2
+        .services(TWILIO_VERIFY_SERVICE_SID)
+        .verificationChecks.create({ to: phoneE164, code });
+    } catch (e) {
+      console.error("[twilioVerifyOtp] Twilio error:", e);
+      throw new HttpsError("internal", "TWILIO_VERIFY_FAILED", {
+        message: e && e.message ? String(e.message) : "unknown",
+        code: e && e.code ? e.code : null,
+        status: e && e.status ? e.status : null,
+      });
+    }
 
-  const phoneE164 = normalizeE164(data && data.phoneE164);
-  const code = (data && data.code ? String(data.code) : "").trim();
+    if (!check || check.status !== "approved") {
+      return { ok: false, status: check ? check.status : "failed" };
+    }
 
-  if (!/^\d{4,10}$/.test(code)) {
-    throw new HttpsError("invalid-argument", "OTP_INVALID_FORMAT");
-  }
-
-  console.log("[twilioVerifyOtp] to:", maskPhone(phoneE164), "appCheck:", !!(context && context.app));
-
-  let check;
-  try {
-    check = await twilioClient.verify.v2
-      .services(TWILIO_VERIFY_SERVICE_SID)
-      .verificationChecks.create({ to: phoneE164, code });
-  } catch (e) {
-    console.error("[twilioVerifyOtp] Twilio error:", e);
-    throw new HttpsError("internal", "TWILIO_VERIFY_FAILED", {
-      message: e && e.message ? String(e.message) : "unknown",
-      code: e && e.code ? e.code : null,
-      status: e && e.status ? e.status : null,
-    });
-  }
-
-  if (!check || check.status !== "approved") {
-    return { ok: false, status: check ? check.status : "failed" };
-  }
-
-  // Get-or-create Firebase user by phoneNumber, then mint a custom token.
-  // If Auth lookup fails unexpectedly (permissions / API / transient outage),
-  // fall back to a deterministic UID so the client can still sign in.
-  let uid;
-  let userRecord = null;
-  try {
-    userRecord = await admin.auth().getUserByPhoneNumber(phoneE164);
-    uid = userRecord.uid;
-  } catch (e) {
-    const code = e && e.code ? String(e.code) : "";
-    if (code.includes("auth/user-not-found")) {
-      userRecord = await admin.auth().createUser({ phoneNumber: phoneE164 });
-      uid = userRecord.uid;
-    } else {
-      console.error("[twilioVerifyOtp] getUserByPhoneNumber failed:", e);
-      // Fallback: deterministic UID
-      uid = uidFromPhoneE164(phoneE164);
-      // Best-effort: if that UID already exists, keep it.
-      try {
-        userRecord = await admin.auth().getUser(uid);
-      } catch (_) {
-        // ignore
+    // Get-or-create Firebase user by phoneNumber, then mint a custom token
+    let userRecord;
+    try {
+      userRecord = await admin.auth().getUserByPhoneNumber(phoneE164);
+    } catch (e) {
+      const code = e && e.code ? String(e.code) : "";
+      if (code.includes("auth/user-not-found")) {
+        userRecord = await admin.auth().createUser({ phoneNumber: phoneE164 });
+      } else {
+        console.error("[twilioVerifyOtp] getUserByPhoneNumber failed:", e);
+        throw new HttpsError("internal", "AUTH_LOOKUP_FAILED");
       }
     }
-  }
 
-  const nowMs = Date.now();
+    const uid = userRecord.uid;
+    const nowMs = Date.now();
 
-  // Ensure users/{uid} exists (optional but useful for your app)
-  const userDocRef = db.collection("users").doc(uid);
-  const userSnap = await userDocRef.get();
-  const userPatch = {
-    uid,
-    phoneE164,
-    updatedAt: FieldValue.serverTimestamp(),
-    updatedAtMs: nowMs,
-  };
-  if (!userSnap.exists) {
-    userPatch.createdAt = FieldValue.serverTimestamp();
-    userPatch.createdAtMs = nowMs;
-  }
-  await userDocRef.set(userPatch, { merge: true });
+    // Ensure users/{uid} exists (optional but useful for your app)
+    const userDocRef = db.collection("users").doc(uid);
+    const userSnap = await userDocRef.get();
+    const userPatch = {
+      uid,
+      phoneE164,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedAtMs: nowMs,
+    };
+    if (!userSnap.exists) {
+      userPatch.createdAt = FieldValue.serverTimestamp();
+      userPatch.createdAtMs = nowMs;
+    }
+    await userDocRef.set(userPatch, { merge: true });
 
-  const customToken = await admin.auth().createCustomToken(uid, { authProvider: "twilio" });
+    const customToken = await admin
+      .auth()
+      .createCustomToken(uid, { authProvider: "twilio" });
 
-  return { ok: true, uid, phoneE164, customToken };
-});
-
+    return { ok: true, uid, phoneE164, customToken };
+  });
