@@ -2,7 +2,7 @@ name: tiki
 description: "Tki marketplace"
 publish_to: "none"
 
-version: 0.1.10+4
+version: 0.1.10+5
 environment:
   sdk: ">=3.3.0 <4.0.0"
 

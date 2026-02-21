@@ -314,8 +314,12 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (signedIn() && request.auth.uid == uid);
 
-      // Allow the user to delete their own KYC request when deleting their account.
-      allow update: if isAdmin();
+      // User can only soft-delete their own KYC request (no field edits).
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(["isDeleted", "deletedAt", "status"])
+          && request.resource.data.isDeleted == true);
       allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
     }
 
