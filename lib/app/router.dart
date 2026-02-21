@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/state/auth_state.dart' as auth;
-import '../core/state/notifications_controller.dart';
+import '../features/notifications/presentation/notifications_controller.dart'
+    as notif;
 import '../features/auth/presentation/phone_login_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import 'localization/l10n.dart';
-
 
 // Screens
 import '../features/splash/presentation/splash_screen.dart';
@@ -40,7 +39,6 @@ import '../features/content/presentation/policy_article_screen.dart';
 
 import '../features/kyc/presentation/verification_screen.dart';
 import '../features/kyc/presentation/kyc_submit_screen.dart';
-
 
 /// Navigator keys
 ///
@@ -123,7 +121,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return LegalDocumentScreen(docId: doc);
         },
       ),
-      
 
       // Temu-style content pages
       GoRoute(
@@ -355,10 +352,11 @@ class _MainScaffoldState extends State<_MainScaffold> {
           NavigationDestination(
             icon: Consumer(
               builder: (context, ref, _) {
-                final unread = ref.watch(notificationsUnreadCountProvider);
-                if (kDebugMode) {
-                  debugPrint('[Nav] unread notifications = $unread');
-                }
+                // Keep the badge in sync with the Notifications screen.
+                final unread = ref.watch(
+                  notif.notificationsControllerProvider
+                      .select((s) => s.unreadCount),
+                );
                 return Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -397,10 +395,10 @@ class _MainScaffoldState extends State<_MainScaffold> {
             ),
             selectedIcon: Consumer(
               builder: (context, ref, _) {
-                final unread = ref.watch(notificationsUnreadCountProvider);
-                if (kDebugMode) {
-                  debugPrint('[Nav] unread notifications = $unread');
-                }
+                final unread = ref.watch(
+                  notif.notificationsControllerProvider
+                      .select((s) => s.unreadCount),
+                );
                 return Stack(
                   clipBehavior: Clip.none,
                   children: [

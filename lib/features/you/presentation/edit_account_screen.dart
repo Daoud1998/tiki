@@ -13,6 +13,7 @@ import '../../../core/data/ma_suggestions.dart';
 import '../../../core/state/auth_state.dart' as auth;
 import '../../kyc/data/kyc_settings_repository.dart';
 import '../../kyc/domain/kyc_models.dart';
+import '../data/account_deletion_service.dart';
 
 /// Edit account screen (Firestore-backed profile via AuthController.updateProfile):
 /// - Works for Phone OTP accounts (no in-app password)
@@ -34,6 +35,7 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
   bool _prefilled = false;
 
   bool _saving = false;
+  bool _deleting = false;
 
   // Extra profile fields stored directly in Firestore.
   bool _extraLoaded = false;
@@ -494,6 +496,92 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
     }
   }
 
+  Future<void> _confirmAndDelete() async {
+    final s = AppStrings.of(context);
+    final a = ref.read(auth.authControllerProvider);
+
+    if (!a.isSignedIn) {
+      context.push('/auth?next=${Uri.encodeComponent('/account/edit')}');
+      return;
+    }
+    if (_saving || _deleting) return;
+
+    final title = s.isAr
+        ? 'حذف الحساب'
+        : s.isFr
+            ? 'Supprimer le compte'
+            : 'Delete account';
+    final body = s.isAr
+        ? 'سيتم حذف حسابك وبياناتك من التطبيق. هذا الإجراء لا يمكن التراجع عنه.'
+        : s.isFr
+            ? "Votre compte et vos données seront supprimés. Cette action est irréversible."
+            : 'Your account and data will be deleted. This action cannot be undone.';
+    final cancelText = s.isAr
+        ? 'إلغاء'
+        : s.isFr
+            ? 'Annuler'
+            : 'Cancel';
+    final deleteText = s.isAr
+        ? 'حذف'
+        : s.isFr
+            ? 'Supprimer'
+            : 'Delete';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(false),
+              child: Text(cancelText),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dctx).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(deleteText),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (ok != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    final result = await AccountDeletionService.deleteCurrentUser();
+    if (!mounted) return;
+    setState(() => _deleting = false);
+
+    if (result.ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.isAr
+              ? 'تم حذف الحساب'
+              : s.isFr
+                  ? 'Compte supprimé'
+                  : 'Account deleted'),
+        ),
+      );
+      context.go('/');
+      return;
+    }
+
+    final msg = result.message?.trim().isNotEmpty == true
+        ? result.message!.trim()
+        : (s.isAr
+            ? 'تعذر حذف الحساب. حاول تسجيل الدخول من جديد ثم أعد المحاولة.'
+            : s.isFr
+                ? "Impossible de supprimer le compte. Reconnectez-vous puis réessayez."
+                : 'Could not delete account. Please sign in again and try once more.');
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -805,6 +893,35 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
                       : 'Save',
             ),
           ),
+
+          if (a.isSignedIn) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: (!_saving && !_deleting) ? _confirmAndDelete : null,
+              icon: _deleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              label: Text(
+                s.isAr
+                    ? 'حذف الحساب'
+                    : s.isFr
+                        ? 'Supprimer le compte'
+                        : 'Delete account',
+              ),
+            ),
+          ],
         ],
       ),
     );

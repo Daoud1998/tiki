@@ -53,7 +53,8 @@ service cloud.firestore {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow create: if signedIn() && request.auth.uid == uid;
       allow update: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow delete: if isAdmin();
+      // Allow users to delete their own account profile.
+      allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
     }
 
     match /users/{uid}/blocks/{blockId} {
@@ -313,7 +314,9 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (signedIn() && request.auth.uid == uid);
 
-      allow update, delete: if isAdmin();
+      // Allow the user to delete their own KYC request when deleting their account.
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
     }
 
     match /kyc_waitlist/{uid} {
@@ -338,7 +341,8 @@ service cloud.firestore {
           && request.resource.data.userId == request.auth.uid)
         || isAdmin();
 
-      allow delete: if isAdmin();
+      // Allow user to delete their own ticket when deleting their account.
+      allow delete: if isAdmin() || (signedIn() && ticketId == request.auth.uid);
 
       match /messages/{msgId} {
         allow read: if isAdmin()
@@ -353,7 +357,9 @@ service cloud.firestore {
             && (!request.resource.data.keys().hasAny(["extra"]) || request.resource.data.extra.type != "image"))
           || (isAdmin() && request.resource.data.fromAdmin == true);
 
-        allow update, delete: if isAdmin();
+        // Allow user to delete messages in their own ticket when deleting their account.
+        allow update: if isAdmin();
+        allow delete: if isAdmin() || (signedIn() && ticketId == request.auth.uid);
       }
     }
 
