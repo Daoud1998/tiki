@@ -177,7 +177,7 @@ class KycVerificationUiSettings {
       const KycVerificationUiSettings(
         allowInApp: true,
         allowWhatsApp: true,
-        whatsAppNumber: '+22236566606',
+        whatsAppNumber: '+31684564820',
         whatsAppTemplateAr:
             'السلام عليكم، أريد توثيق حسابي في تيكي.\nUID: {{uid}}\nالاسم: {{name}}\nالهاتف: {{phone}}\nسأرسل: (وثيقة + سيلفي)',
         whatsAppTemplateFr:

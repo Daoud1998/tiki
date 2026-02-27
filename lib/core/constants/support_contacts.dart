@@ -4,7 +4,7 @@
 /// Tip: keep them in **one** place so you don't hunt them across screens.
 
 /// WhatsApp number in international format, no spaces.
-const String kSupportWhatsApp = '+22236566606';
+const String kSupportWhatsApp = '+31684564820';
 
 /// Phone number in international format.
 const String kSupportPhone = '+22236566606';

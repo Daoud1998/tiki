@@ -801,7 +801,7 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
     );
 
     // Read from Remote Config (fallback to constant).
-    final waNumber = SupportConfig.whatsapp;
+    final waNumber = SupportConfig.whatsapp.replaceAll(RegExp(r'[^0-9]'), '');
     final uri = Uri.parse(
       'https://wa.me/$waNumber?text=${Uri.encodeComponent(msg)}',
     );
@@ -1319,7 +1319,8 @@ class _PhoneLoginScreenState extends ConsumerState<PhoneLoginScreen>
             alignment: AlignmentDirectional.centerStart,
             child: TextButton.icon(
               onPressed: _busy ? null : _contactAdminWhatsApp,
-              style: TextButton.styleFrom(foregroundColor: AppTheme.brandOrange),
+              style:
+                  TextButton.styleFrom(foregroundColor: AppTheme.brandOrange),
               icon: const Icon(Icons.chat_bubble_outline),
               label: Text(tr(
                 ar: 'تواصل مع الإدارة عبر واتساب',

@@ -419,20 +419,24 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-
   Future<void> _openFeatureWhatsApp(BuildContext context) async {
     final message = tikkiTr(context,
         ar: 'السلام عليكم، أريد تمييز إعلان/عرض.\nمن فضلك أرسل لك رابط الإعلان أو رقمه والمدة المطلوبة.',
         fr: "Bonjour, je veux mettre en vedette une annonce/offre.\nMerci de m'envoyer le lien ou le numéro et la durée souhaitée.",
         en: 'Hi, I want to feature an ad/offer.\nPlease send the ad link or ID and the desired duration.');
     final phone = kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
-    final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+    final uri =
+        Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tikkiTr(context, ar: 'تعذر فتح واتساب', fr: "Impossible d’ouvrir WhatsApp", en: 'Could not open WhatsApp'))),
+        SnackBar(
+            content: Text(tikkiTr(context,
+                ar: 'تعذر فتح واتساب',
+                fr: "Impossible d’ouvrir WhatsApp",
+                en: 'Could not open WhatsApp'))),
       );
     }
   }
@@ -2347,8 +2351,8 @@ Tip: include shop name, address, phone and working hours.''',
     categoryId: 'fashion',
     imageUrl: 'https://picsum.photos/seed/tikki_offer/120/120',
     arTitle: 'عروض اليوم داخل تيكي',
-    frTitle: 'Offres du jour sur Tikki',
-    enTitle: "Today's deals on Tikki",
+    frTitle: 'Offres du jour surTkii',
+    enTitle: "Today's deals onTkii",
     arSubtitle: 'خصومات على فئات مختارة',
     frSubtitle: 'Réductions sur des catégories sélectionnées',
     enSubtitle: 'Discounts on selected categories',
@@ -2468,7 +2472,9 @@ class _PromoTickerState extends State<_PromoTicker> {
                     children: [
                       Text(
                         tikkiTr(context,
-                            ar: 'ميّز إعلانك', fr: 'Mettre en vedette', en: 'Feature your ad'),
+                            ar: 'ميّز إعلانك',
+                            fr: 'Mettre en vedette',
+                            en: 'Feature your ad'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -3453,7 +3459,8 @@ class PromoAdsScreen extends StatelessWidget {
                     ar: 'لتمييز إعلانك أو عرضك، تواصل مع المشرف عبر واتساب.\nأرسل رابط الإعلان أو رقمه والمدة المطلوبة.',
                     fr: "Pour mettre en vedette votre annonce/offre, contactez l'admin sur WhatsApp.\nEnvoyez le lien ou le numéro et la durée souhaitée.",
                     en: 'To feature your ad/offer, contact admin on WhatsApp.\nSend the ad link or ID and the desired duration.'),
-                style: TextStyle(height: 1.35, color: cs.onSurface.withAlpha(220)),
+                style:
+                    TextStyle(height: 1.35, color: cs.onSurface.withAlpha(220)),
               ),
             ),
             const SizedBox(height: 14),
@@ -3463,8 +3470,10 @@ class PromoAdsScreen extends StatelessWidget {
                     ar: 'السلام عليكم، أريد تمييز إعلان/عرض.\nمن فضلك أرسل لك رابط الإعلان أو رقمه والمدة المطلوبة.',
                     fr: 'Bonjour, je veux mettre en vedette une annonce/offre.\nMerci de m\'envoyer le lien ou le numéro et la durée souhaitée.',
                     en: 'Hi, I want to feature an ad/offer.\nPlease send the ad link or ID and the desired duration.');
-                final phone = kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
-                final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+                final phone =
+                    kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
+                final uri = Uri.parse(
+                    'https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
               },
               icon: const Icon(Icons.support_agent_rounded),
@@ -3491,7 +3500,9 @@ class _VipPkg {
     }
     if (days == 7) {
       return tikkiTr(c,
-          ar: 'مميّز لمدة أسبوع', fr: 'مميّز 1 semaine', en: 'مميّز for 1 week');
+          ar: 'مميّز لمدة أسبوع',
+          fr: 'مميّز 1 semaine',
+          en: 'مميّز for 1 week');
     }
     return tikkiTr(c,
         ar: 'مميّز لمدة $days أيام',
@@ -4192,8 +4203,8 @@ class _CreatePromoScreenState extends ConsumerState<_CreatePromoScreen> {
               hintText: tikkiTr(
                 context,
                 ar: 'مثال: عروض اليوم داخل تيكي',
-                fr: "Ex: Offres du jour sur Tikki",
-                en: 'e.g. Today deals on Tikki',
+                fr: "Ex: Offres du jour surTkii",
+                en: 'e.g. Today deals onTkii',
               ),
               helperText: tikkiTr(
                 context,
@@ -5465,7 +5476,7 @@ class _TikkiSplitBannerState extends ConsumerState<_TikkiSplitBanner> {
   static const _adminNotes = <Map<String, String>>[
     {
       'ar': 'عروض تيكي: خصومات أسبوعية',
-      'fr': 'Offres Tikki: promos hebdo',
+      'fr': 'OffresTkii: promos hebdo',
       'en': 'Tikki deals: weekly promos',
     },
     {
@@ -5666,7 +5677,7 @@ class _TikkiSplitBannerState extends ConsumerState<_TikkiSplitBanner> {
                             Text(
                               tikkiTr(context,
                                   ar: 'عروض تيكي',
-                                  fr: 'Offres Tikki',
+                                  fr: 'OffresTkii',
                                   en: 'Tikki offers'),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
