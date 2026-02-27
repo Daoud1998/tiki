@@ -512,10 +512,10 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
             ? 'Supprimer le compte'
             : 'Delete account';
     final body = s.isAr
-        ? 'سيتم حذف حساب تسجيل الدخول وإخفاء بياناتك الشخصية داخل التطبيق. قد نحتفظ ببعض المحتوى بدون معلومات شخصية. هذا الإجراء لا يمكن التراجع عنه.'
+        ? 'سيتم حذف حسابك وبياناتك من التطبيق. هذا الإجراء لا يمكن التراجع عنه.'
         : s.isFr
-            ? "Votre compte de connexion sera supprimé et vos données personnelles seront masquées dans l’app. Certains contenus peuvent être conservés sans informations personnelles. Cette action est irréversible."
-            : 'Your sign-in account will be deleted and your personal data will be hidden in the app. Some content may remain without personal information. This action cannot be undone.';
+            ? "Votre compte et vos données seront supprimés. Cette action est irréversible."
+            : 'Your account and data will be deleted. This action cannot be undone.';
     final cancelText = s.isAr
         ? 'إلغاء'
         : s.isFr
@@ -554,7 +554,7 @@ class _EditAccountScreenState extends ConsumerState<EditAccountScreen> {
     if (ok != true || !mounted) return;
 
     setState(() => _deleting = true);
-    final result = await AccountDeletionService.deleteCurrentUser();
+    final result = await AccountDeletionService.deleteCurrentUser().timeout(const Duration(seconds: 25), onTimeout: () => const AccountDeletionResult(ok: false, message: "Delete request timed out. Please try again."));
     if (!mounted) return;
     setState(() => _deleting = false);
 

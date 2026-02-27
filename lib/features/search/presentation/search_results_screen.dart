@@ -182,6 +182,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   }
 
   final _qCtl = TextEditingController();
+  final _qFocus = FocusNode();
+  bool _expandSearch = false;
   Timer? _debounce;
 
   late SearchFilters _filters;
@@ -201,6 +203,13 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   void initState() {
     super.initState();
     _filters = _initialFiltersFromRoute();
+
+    _qFocus.addListener(() {
+      final v = _qFocus.hasFocus;
+      if (v == _expandSearch) return;
+      if (!mounted) return;
+      setState(() => _expandSearch = v);
+    });
 
     final iq = widget.initialQuery?.trim();
     final ph = widget.phone?.trim();
@@ -225,6 +234,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   void dispose() {
     _debounce?.cancel();
     _qCtl.dispose();
+    _qFocus.dispose();
     super.dispose();
   }
 
@@ -666,6 +676,16 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _expandSearch
+                            ? IconButton(
+                                tooltip: _tr(context,
+                                    ar: 'إغلاق', fr: 'Fermer', en: 'Close'),
+                                icon: const Icon(Icons.close_rounded),
+                                onPressed: () {
+                                  _qFocus.unfocus();
+                                },
+                              )
+                            : null,
                         hintText: _tr(ctx,
                             ar: 'اكتب ما تبحث عنه…',
                             fr: 'Écrivez ce que vous cherchez…',
@@ -1178,50 +1198,69 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         titleSpacing: 0,
-        leadingWidth: 104,
-        leading: Row(
-          children: [
-            IconButton(
-              tooltip: _tr(context, ar: 'رجوع', fr: 'Retour', en: 'Back'),
-              icon: const BackButtonIcon(),
-              onPressed: () {
-                final r = GoRouter.of(context);
-                if (r.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/home');
-                }
-              },
-            ),
-            IconButton(
-              onPressed: _openFilters,
-              tooltip: _tr(context, ar: 'فلتر', fr: 'Filtres', en: 'Filters'),
-              icon: Stack(
-                clipBehavior: Clip.none,
+        leadingWidth: _expandSearch ? 56 : 104,
+        leading: _expandSearch
+            ? IconButton(
+                tooltip: _tr(context, ar: 'رجوع', fr: 'Retour', en: 'Back'),
+                icon: const BackButtonIcon(),
+                onPressed: () {
+                  final r = GoRouter.of(context);
+                  if (r.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/home');
+                  }
+                },
+              )
+            : Row(
                 children: [
-                  const Icon(Icons.tune_rounded),
-                  if (_filtersActive())
-                    PositionedDirectional(
-                      top: -1,
-                      end: -1,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: cs.primary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
+                  IconButton(
+                    tooltip: _tr(context, ar: 'رجوع', fr: 'Retour', en: 'Back'),
+                    icon: const BackButtonIcon(),
+                    onPressed: () {
+                      final r = GoRouter.of(context);
+                      if (r.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/home');
+                      }
+                    },
+                  ),
+                  IconButton(
+                    onPressed: _openFilters,
+                    tooltip:
+                        _tr(context, ar: 'فلتر', fr: 'Filtres', en: 'Filters'),
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        const Icon(Icons.tune_rounded),
+                        if (_filtersActive())
+                          PositionedDirectional(
+                            top: -1,
+                            end: -1,
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: cs.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
+                  ),
                 ],
               ),
-            ),
-          ],
-        ),
         title: Padding(
           padding: const EdgeInsetsDirectional.only(end: 8),
           child: TextField(
             controller: _qCtl,
+            focusNode: _qFocus,
+            style: TextStyle(
+              fontSize: _expandSearch ? 16 : 14,
+              fontWeight: FontWeight.w700,
+            ),
             onChanged: _onQueryChanged,
             onSubmitted: _commitQuery,
             textInputAction: TextInputAction.search,
@@ -1244,30 +1283,32 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
             ),
           ),
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsetsDirectional.only(end: 10),
-            child: Consumer(
-              builder: (context, ref, _) => _LangPill(ref: ref),
-            ),
-          ),
-          IconButton(
-            tooltip: _tr(context,
-                ar: 'بحث بالصورة',
-                fr: 'Recherche par image',
-                en: 'Image search'),
-            onPressed: _openImageSearch,
-            icon: const Icon(Icons.camera_alt_outlined),
-          ),
-          IconButton(
-            tooltip: _tr(context,
-                ar: 'بحث ذكي',
-                fr: 'Recherche intelligente',
-                en: 'Smart search'),
-            onPressed: _openSmartAssistant,
-            icon: const Icon(Icons.auto_awesome_outlined),
-          ),
-        ],
+        actions: _expandSearch
+            ? const <Widget>[]
+            : [
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 10),
+                  child: Consumer(
+                    builder: (context, ref, _) => _LangPill(ref: ref),
+                  ),
+                ),
+                IconButton(
+                  tooltip: _tr(context,
+                      ar: 'بحث بالصورة',
+                      fr: 'Recherche par image',
+                      en: 'Image search'),
+                  onPressed: _openImageSearch,
+                  icon: const Icon(Icons.camera_alt_outlined),
+                ),
+                IconButton(
+                  tooltip: _tr(context,
+                      ar: 'بحث ذكي',
+                      fr: 'Recherche intelligente',
+                      en: 'Smart search'),
+                  onPressed: _openSmartAssistant,
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                ),
+              ],
       ),
       body: CustomScrollView(
         slivers: [
