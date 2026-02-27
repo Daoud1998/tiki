@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sms_autofill/sms_autofill.dart';
@@ -15,7 +13,9 @@ Future<void> main() async {
 
   // Prints the Android App Signature (11 chars) used for WhatsApp "Autofill" templates.
   // Look in the debug console for: APP_SIGNATURE: XXXXXXXXXXX
-  if (kDebugMode && Platform.isAndroid) {
+  if (kDebugMode &&
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.android) {
     try {
       final sig = await SmsAutoFill().getAppSignature;
       debugPrint('APP_SIGNATURE: $sig');
@@ -35,36 +35,40 @@ Future<void> main() async {
   }
 
   // App Check:
-  // - Debug builds: use the Debug provider (requires adding the debug token in Firebase Console).
-  // - Release builds: use Play Integrity.
+  // - Web: either configure reCAPTCHA v3 OR skip App Check to avoid blocking startup.
+  // - Android/iOS: Debug provider in debug builds, Play Integrity / App Attest in release.
   //
-  // If you see:
-  //   "Error returned from API. code: 403 body: App attestation failed."
-  // then you DID NOT register the debug token yet (or you're running a release build without
-  // Play Integrity setup).
-  await FirebaseAppCheck.instance.activate(
-    androidProvider:
-        kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-    appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
-  );
+  // If your Firebase Console → App Check is set to "Monitoring", you can safely skip
+  // App Check on web. If you later set "Enforce", configure WebProvider.reCaptchaV3.
+  if (!kIsWeb) {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider:
+          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+      appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
+    );
 
-  // Trigger a token request once at startup so the "debug secret" is printed in Logcat
-  // when using AndroidProvider.debug.
-  if (kDebugMode) {
-    try {
-      final token = await FirebaseAppCheck.instance.getToken(true);
-      debugPrint('APPCHECK_TOKEN_READY: ${token != null}');
-    } catch (e) {
-      debugPrint('APPCHECK_TOKEN_ERROR: $e');
-      debugPrint(
-        'If you are in DEBUG mode, copy the "debug secret" from Logcat and add it in: '
-        'Firebase Console → App Check → (your app) → Manage debug tokens.',
-      );
+    // Trigger a token request once at startup so the "debug secret" is printed in Logcat
+    // when using AndroidProvider.debug.
+    if (kDebugMode) {
+      try {
+        final token = await FirebaseAppCheck.instance.getToken(true);
+        debugPrint('APPCHECK_TOKEN_READY: ${token != null}');
+      } catch (e) {
+        debugPrint('APPCHECK_TOKEN_ERROR: $e');
+        debugPrint(
+          'If you are in DEBUG mode, copy the "debug secret" from Logcat and add it in: '
+          'Firebase Console → App Check → (your app) → Manage debug tokens.',
+        );
+      }
     }
-  }
 
-  // Keep token refresh enabled (default = true).
-  await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+    // Keep token refresh enabled (default = true).
+    await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+  } else {
+    // Web: do nothing (prevents "Uncaught Error" on startup).
+    // If you want App Check on web later:
+    // await FirebaseAppCheck.instance.activate(webProvider: ReCaptchaV3Provider('YOUR_SITE_KEY'));
+  }
 
   await bootstrap();
 }
