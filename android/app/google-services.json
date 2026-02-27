@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "36657885045-b5ttt5smh2fb1v4ous8ogprprggpl82o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.tiki.mr",
+            "certificate_hash": "fc4475a1a1da5a873175d3e0201a49f7ea05f8fd"
+          }
+        },
+        {
           "client_id": "36657885045-sf4ml8ohov8n8d0s8ie9von0rnpqgo66.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-
-
+import '../../../app/localization/l10n.dart';
 import '../../../core/state/auth_state.dart';
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
@@ -40,26 +39,29 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   String _errText(String? code) {
     switch (code) {
       case 'weak_password':
-        return 'كلمة المرور ضعيفة (6 أحرف على الأقل)';
+        return context.tr('auth.reset_password.error.weak_password');
       case 'requires_recent_login':
-        return 'أعد التحقق برمز OTP ثم حاول مرة أخرى';
+        return context.tr('auth.reset_password.error.requires_recent_login');
       case 'not_supported':
-        return 'هذا الحساب لا يدعم كلمة مرور للهاتف';
+        return context.tr('auth.reset_password.error.not_supported');
       case 'not_signed_in':
-        return 'انتهت الجلسة. أعد التحقق برمز OTP ثم حاول مرة أخرى';
+        return context.tr('auth.reset_password.error.session_expired');
       case 'invalid_phone':
-        return 'رقم الهاتف غير صحيح';
+        return context.tr('auth.reset_password.error.invalid_phone');
       case 'email_in_use':
-        return 'هذا الرقم مرتبط بحساب آخر';
+        return context.tr('auth.reset_password.error.phone_in_use');
       case 'network':
-        return 'تحقق من الإنترنت';
+        return context.tr('auth.reset_password.error.network');
       case 'unauthenticated':
-        return 'غير مصرح. أعد المحاولة';
+        return context.tr('auth.reset_password.error.unauthorized');
       default:
         if (kDebugMode && code != null && code.trim().isNotEmpty) {
-          return 'تعذر تغيير كلمة المرور ($code)';
+          return context.tr(
+            'auth.reset_password.error.generic_with_code',
+            args: {'code': code},
+          );
         }
-        return 'تعذر تغيير كلمة المرور';
+        return context.tr('auth.reset_password.error.generic');
     }
   }
 
@@ -68,11 +70,11 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
     final p2 = _pass2.text.trim();
 
     if (p1.length < 6) {
-      _toast('كلمة المرور قصيرة');
+      _toast(context.tr('auth.reset_password.password_too_short'));
       return;
     }
     if (p1 != p2) {
-      _toast('كلمتا المرور غير متطابقتين');
+      _toast(context.tr('auth.reset_password.password_mismatch'));
       return;
     }
 
@@ -95,11 +97,16 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
         return;
       }
 
-      _toast('تم تغيير كلمة المرور');
+      _toast(context.tr('auth.reset_password.success'));
       Navigator.of(context).pop(true);
     } catch (e) {
       debugPrint('ResetPassword submit failed: $e');
-      _toast(kDebugMode ? 'حدث خطأ: $e' : 'حدث خطأ');
+      _toast(
+        kDebugMode
+            ? context.tr('auth.reset_password.error.unexpected_with',
+                args: {'e': '$e'})
+            : context.tr('common.error'),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -109,7 +116,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('تغيير كلمة المرور'),
+        title: Text(context.tr('auth.reset_password.title')),
       ),
       body: SafeArea(
         child: Padding(
@@ -117,25 +124,28 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
           child: Column(
             children: [
               Text(
-                'أدخل كلمة مرور جديدة لهذا الرقم:\n${widget.phoneE164}',
+                context.tr(
+                  'auth.reset_password.prompt',
+                  args: {'phone': widget.phoneE164},
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: _pass1,
                 obscureText: !_show,
-                decoration: const InputDecoration(
-                  labelText: 'كلمة المرور الجديدة',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: context.tr('auth.reset_password.new_password'),
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _pass2,
                 obscureText: !_show,
-                decoration: const InputDecoration(
-                  labelText: 'تأكيد كلمة المرور',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: context.tr('auth.reset_password.confirm_password'),
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 8),
@@ -145,7 +155,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                     value: _show,
                     onChanged: (v) => setState(() => _show = v ?? false),
                   ),
-                  const Text('إظهار كلمة المرور'),
+                  Text(context.tr('auth.reset_password.show_password')),
                 ],
               ),
               const Spacer(),
@@ -160,7 +170,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('حفظ'),
+                    : Text(context.tr('common.save')),
               ),
             ],
           ),

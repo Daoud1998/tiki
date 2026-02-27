@@ -114,6 +114,11 @@ class AppStrings {
     'common.next': {'ar': 'التالي', 'fr': 'Suivant', 'en': 'Next'},
     'common.later': {'ar': 'لاحقاً', 'fr': 'Plus tard', 'en': 'Later'},
     'common.close': {'ar': 'إغلاق', 'fr': 'Fermer', 'en': 'Close'},
+    'common.error': {
+      'ar': 'حدث خطأ',
+      'fr': 'Une erreur est survenue',
+      'en': 'An error occurred',
+    },
     'common.unavailable_feature': {
       'ar': 'هذه الميزة غير متاحة حالياً',
       'fr': 'Fonctionnalité indisponible pour le moment',
@@ -182,6 +187,101 @@ class AppStrings {
       'ar': 'تسجيل الخروج',
       'fr': 'Déconnexion',
       'en': 'Sign out'
+    },
+    'auth.reset_password.title': {
+      'ar': 'تغيير كلمة المرور',
+      'fr': 'Changer le mot de passe',
+      'en': 'Change password'
+    },
+    'auth.reset_password.prompt': {
+      'ar': 'أدخل كلمة مرور جديدة لهذا الرقم:\n{phone}',
+      'fr': 'Entrez un nouveau mot de passe pour ce numéro :\n{phone}',
+      'en': 'Enter a new password for this number:\n{phone}',
+    },
+    'auth.reset_password.new_password': {
+      'ar': 'كلمة المرور الجديدة',
+      'fr': 'Nouveau mot de passe',
+      'en': 'New password'
+    },
+    'auth.reset_password.confirm_password': {
+      'ar': 'تأكيد كلمة المرور',
+      'fr': 'Confirmer le mot de passe',
+      'en': 'Confirm password'
+    },
+    'auth.reset_password.show_password': {
+      'ar': 'إظهار كلمة المرور',
+      'fr': 'Afficher le mot de passe',
+      'en': 'Show password'
+    },
+    'auth.reset_password.password_too_short': {
+      'ar': 'كلمة المرور قصيرة',
+      'fr': 'Mot de passe trop court',
+      'en': 'Password is too short'
+    },
+    'auth.reset_password.password_mismatch': {
+      'ar': 'كلمتا المرور غير متطابقتين',
+      'fr': 'Les mots de passe ne correspondent pas',
+      'en': 'Passwords do not match'
+    },
+    'auth.reset_password.success': {
+      'ar': 'تم تغيير كلمة المرور',
+      'fr': 'Mot de passe modifié',
+      'en': 'Password changed'
+    },
+    'auth.reset_password.error.weak_password': {
+      'ar': 'كلمة المرور ضعيفة (6 أحرف على الأقل)',
+      'fr': 'Mot de passe faible (au moins 6 caractères)',
+      'en': 'Weak password (at least 6 characters)'
+    },
+    'auth.reset_password.error.requires_recent_login': {
+      'ar': 'أعد التحقق برمز OTP ثم حاول مرة أخرى',
+      'fr': 'Vérifiez à nouveau avec le code OTP puis réessayez',
+      'en': 'Verify again with OTP, then try again'
+    },
+    'auth.reset_password.error.not_supported': {
+      'ar': 'هذا الحساب لا يدعم كلمة مرور للهاتف',
+      'fr': "Ce compte ne prend pas en charge le mot de passe par téléphone",
+      'en': 'This account does not support phone password'
+    },
+    'auth.reset_password.error.session_expired': {
+      'ar': 'انتهت الجلسة. أعد التحقق برمز OTP ثم حاول مرة أخرى',
+      'fr': 'Session expirée. Vérifiez à nouveau avec le code OTP puis réessayez',
+      'en': 'Session expired. Verify OTP again and retry'
+    },
+    'auth.reset_password.error.invalid_phone': {
+      'ar': 'رقم الهاتف غير صحيح',
+      'fr': 'Numéro de téléphone invalide',
+      'en': 'Invalid phone number'
+    },
+    'auth.reset_password.error.phone_in_use': {
+      'ar': 'هذا الرقم مرتبط بحساب آخر',
+      'fr': 'Ce numéro est associé à un autre compte',
+      'en': 'This number is linked to another account'
+    },
+    'auth.reset_password.error.network': {
+      'ar': 'تحقق من الإنترنت',
+      'fr': 'Vérifiez votre connexion Internet',
+      'en': 'Check your internet connection'
+    },
+    'auth.reset_password.error.unauthorized': {
+      'ar': 'غير مصرح. أعد المحاولة',
+      'fr': 'Non autorisé. Réessayez',
+      'en': 'Unauthorized. Please try again'
+    },
+    'auth.reset_password.error.generic': {
+      'ar': 'تعذر تغيير كلمة المرور',
+      'fr': 'Impossible de changer le mot de passe',
+      'en': 'Unable to change password'
+    },
+    'auth.reset_password.error.generic_with_code': {
+      'ar': 'تعذر تغيير كلمة المرور ({code})',
+      'fr': 'Impossible de changer le mot de passe ({code})',
+      'en': 'Unable to change password ({code})',
+    },
+    'auth.reset_password.error.unexpected_with': {
+      'ar': 'حدث خطأ: {e}',
+      'fr': 'Erreur : {e}',
+      'en': 'Error: {e}',
     },
     'profile.edit': {
       'ar': 'تعديل بياناتي',
