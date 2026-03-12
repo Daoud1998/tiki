@@ -25,17 +25,19 @@ import '../data/products_repository.dart';
 import '../domain/app_product.dart';
 import '../state/products_providers.dart';
 
-Future<void> _openFeatureWhatsAppForAd(BuildContext context, {required String productId, required String title}) async {
-  final message = tikkiTr(context,
+Future<void> _openFeatureWhatsAppForAd(BuildContext context,
+    {required String productId, required String title}) async {
+  final message = tikkiTr(
+    context,
     ar: 'السلام عليكم، أريد تمييز هذا الإعلان:\n$title\nرقم الإعلان: $productId',
     fr: 'Bonjour, je veux mettre en vedette cette annonce :\n$title\nID: $productId',
     en: 'Hi, I want to feature this ad:\n$title\nID: $productId',
   );
   final phone = kSupportWhatsApp.replaceAll('+', '').replaceAll(' ', '');
-  final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
+  final uri =
+      Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(message)}');
   await launchUrl(uri, mode: LaunchMode.externalApplication);
 }
-
 
 /// Product details screen (keeps bottom navigation because it's inside ShellRoute).
 ///
@@ -1295,7 +1297,7 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                   tooltip: tikkiTr(context,
                       ar: 'مشاركة', fr: 'Partager', en: 'Share'),
                   onPressed: () {
-                    const link = 'https://tiki.app';
+                    const link = 'https://tiki-a9d30.web.app';
                     SharePlus.instance
                         .share(ShareParams(text: link, subject: 'TIKI'));
                   },
@@ -1598,7 +1600,8 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: cs.outlineVariant.withAlpha(140)),
+                              border: Border.all(
+                                  color: cs.outlineVariant.withAlpha(140)),
                             ),
                             child: Row(
                               children: [
@@ -1606,14 +1609,16 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         tikkiTr(context,
                                             ar: 'ميّز إعلانك',
                                             fr: 'Mettre en vedette',
                                             en: 'Feature your ad'),
-                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w900),
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
@@ -1621,13 +1626,16 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                                             ar: 'تواصل مع المشرف عبر واتساب لتفعيل التمييز.',
                                             fr: "Contactez l'admin sur WhatsApp pour activer la mise en vedette.",
                                             en: 'Contact admin on WhatsApp to activate featuring.'),
-                                        style: TextStyle(color: cs.onSurface.withAlpha(180), fontSize: 12.5),
+                                        style: TextStyle(
+                                            color: cs.onSurface.withAlpha(180),
+                                            fontSize: 12.5),
                                       ),
                                     ],
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Icon(Icons.chevron_right_rounded, color: cs.onSurface.withAlpha(160)),
+                                Icon(Icons.chevron_right_rounded,
+                                    color: cs.onSurface.withAlpha(160)),
                               ],
                             ),
                           ),
@@ -1902,9 +1910,24 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen> {
                             p,
                             tikkiTr(
                               context,
-                              ar: 'مرحبا، أريد هذا المنتج: ${prod.title}',
-                              fr: 'Bonjour, je veux ce produit: ${prod.title}',
-                              en: 'Hello, I want this item: ${prod.title}',
+                              ar: 'السلام عليكم، مهتم بالمنتج: ${prod.title}\n'
+                                  'رقم الإعلان: ${prod.id}\n'
+                                  'شاهدته عبر تطبيق TKII.\n'
+                                  'Google Play: https://play.google.com/store/apps/details?id=app.tiki.mr\n'
+                                  'App Store: https://apps.apple.com/us/app/tkii/id6758773151\n'
+                                  'الموقع: https://tiki-a9d30.web.app',
+                              fr: 'Bonjour, je suis intéressé par : ${prod.title}\n'
+                                  'ID: ${prod.id}\n'
+                                  'Vu sur l\'application TKII.\n'
+                                  'Google Play: https://play.google.com/store/apps/details?id=app.tiki.mr\n'
+                                  'App Store: https://apps.apple.com/us/app/tkii/id6758773151\n'
+                                  'Site: https://tiki-a9d30.web.app',
+                              en: 'Hello, I am interested in: ${prod.title}\n'
+                                  'ID: ${prod.id}\n'
+                                  'Seen on the TKII app.\n'
+                                  'Google Play: https://play.google.com/store/apps/details?id=app.tiki.mr\n'
+                                  'App Store: https://apps.apple.com/us/app/tkii/id6758773151\n'
+                                  'Web: https://tiki-a9d30.web.app',
                             ),
                           ),
                         ),
