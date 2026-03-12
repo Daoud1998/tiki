@@ -98,7 +98,7 @@ flutter:
     - assets/illustrations/publish/location.svg
     - assets/illustrations/publish/photo.svg
     - assets/illustrations/publish/price.svg
-    - assets/images/branding/Icon-192.png
+    # - assets/images/branding/Icon-192.png
     - assets/images/branding/tiki_lockup_nogap.png
 
   # Fonts (optional now). If you don't add font files, remove this section.
